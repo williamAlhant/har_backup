@@ -3,18 +3,21 @@ use std::path::{Path, PathBuf};
 use bytes::Bytes;
 use log::debug;
 use super::blob_storage::*;
+use super::blob_encryption::EncryptWithChacha;
 
 pub struct BlobStorageLocalDirectory {
     local_dir_path: PathBuf,
     comm: Vec<Sender<Event>>,
-    next_upload_id: u64
+    next_upload_id: u64,
+    encrypt: EncryptWithChacha
 }
 
 struct Task {
     local_dir_path: PathBuf,
     comm: Vec<Sender<Event>>,
     id: UploadId,
-    data: Bytes
+    data: Bytes,
+    encrypt: EncryptWithChacha
 }
 
 impl Task {
@@ -24,7 +27,17 @@ impl Task {
 
         let path = self.local_dir_path.join(hash_hex.as_str());
 
-        match std::fs::write(path, self.data.as_ref()) {
+        let data = match self.encrypt.encrypt_blob(self.data.clone()) {
+            Ok(data) => data,
+            Err(err) => {
+                let err_msg = format!("Error while encrypting ({})", err);
+                let event = self.make_error_event(err_msg);
+                self.send_event(&event);
+                return;
+            }
+        };
+
+        match std::fs::write(path, data.as_ref()) {
             Ok(_) => {
                 let event = self.make_success_event();
                 self.send_event(&event);
@@ -59,10 +72,13 @@ impl BlobStorageLocalDirectory {
         if !path.exists() {
             anyhow::bail!("BlobStorageLocalDirectory::new Directory does not exist")
         }
+        let dummy_key_path = PathBuf::from("/home/cookie/code/har_backup/test_files/keyfile");
+        let encrypt = EncryptWithChacha::new_with_key_from_file(&dummy_key_path)?;
         let me = Self {
             local_dir_path: path.to_path_buf(),
             comm: Vec::new(),
-            next_upload_id: 0
+            next_upload_id: 0,
+            encrypt
         };
         Ok(me)
     }
@@ -77,7 +93,8 @@ impl BlobStorage for BlobStorageLocalDirectory {
             local_dir_path: self.local_dir_path.clone(),
             comm: self.comm.clone(),
             id: upload_id,
-            data
+            data,
+            encrypt: self.encrypt.clone()
         };
 
         debug!("Spawning upload task for id {}", upload_id.to_u64());

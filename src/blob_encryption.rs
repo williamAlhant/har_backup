@@ -6,12 +6,13 @@ use chacha20poly1305::{
 use chacha20poly1305::aead::generic_array::typenum::Unsigned;
 use anyhow::anyhow;
 
-struct EncryptWithChacha {
+#[derive(Clone)]
+pub struct EncryptWithChacha {
     key: chacha20poly1305::Key
 }
 
 impl EncryptWithChacha {
-    fn new_with_key_from_file(path: &Path) -> anyhow::Result<Self> {
+    pub fn new_with_key_from_file(path: &Path) -> anyhow::Result<Self> {
         let file_content = std::fs::read(path)?;
         if file_content.len() != ChaCha20Poly1305::key_size() {
             anyhow::bail!("Key file content does not have the right length for a key")
@@ -23,7 +24,7 @@ impl EncryptWithChacha {
         Ok(me)
     }
 
-    fn encrypt_blob(&self, data: Bytes) -> anyhow::Result<Bytes> {
+    pub fn encrypt_blob(&self, data: Bytes) -> anyhow::Result<Bytes> {
         let nonce = ChaCha20Poly1305::generate_nonce(&mut OsRng);
         let cipher = ChaCha20Poly1305::new(&self.key);
         let cipher_text = cipher.encrypt(&nonce, data.as_ref())
@@ -37,7 +38,7 @@ impl EncryptWithChacha {
         Ok(Bytes::from(blob_with_nonce))
     }
 
-    fn decrypt_blob(&self, mut data: Bytes) -> anyhow::Result<Bytes> {
+    pub fn decrypt_blob(&self, mut data: Bytes) -> anyhow::Result<Bytes> {
 
         let nonce_size = <ChaCha20Poly1305 as AeadCore>::NonceSize::USIZE;
 
