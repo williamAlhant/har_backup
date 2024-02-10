@@ -1,6 +1,6 @@
-use std::io::Read;
 use std::sync::mpsc::{Sender, Receiver};
 use std::path::{Path, PathBuf};
+use bytes::Bytes;
 use log::debug;
 use super::blob_storage::*;
 
@@ -10,14 +10,14 @@ pub struct BlobStorageLocalDirectory {
     next_upload_id: u64
 }
 
-struct Task<R: Read> {
+struct Task {
     local_dir_path: PathBuf,
     comm: Vec<Sender<Event>>,
     id: UploadId,
-    data: R
+    data: Bytes
 }
 
-impl<R: Read> Task<R> {
+impl Task {
     fn do_task(&mut self) {
         let filesink = std::fs::File::open(self.local_dir_path.join("dummy"));
         if filesink.is_err() {
@@ -55,7 +55,7 @@ impl BlobStorageLocalDirectory {
 }
 
 impl BlobStorage for BlobStorageLocalDirectory {
-    fn upload<R: Read + Send + 'static>(&mut self, data: R) -> UploadId {
+    fn upload(&mut self, data: Bytes) -> UploadId {
         let upload_id = UploadId::from_u64(self.next_upload_id);
         self.next_upload_id += 1;
 

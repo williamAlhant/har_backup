@@ -8,9 +8,9 @@ fn main() -> anyhow::Result<()> {
     env_logger::init();
     println!("Hello, world!");
     let mut blob_storage = BlobStorageLocalDirectory::new(Path::new("local_storage"))?;
-    let filehandle = std::fs::File::open(Path::new("test_files/yolo"))?;
+    let filecontent = std::fs::read(Path::new("test_files/yolo"))?;
     let events = blob_storage.events();
-    blob_storage.upload(filehandle);
+    blob_storage.upload(bytes::Bytes::from(filecontent));
     std::thread::sleep(std::time::Duration::from_millis(100));
 
     match events.try_recv() {

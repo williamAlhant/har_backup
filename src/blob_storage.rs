@@ -1,5 +1,5 @@
-use std::io::Read;
 use std::sync::mpsc::Receiver;
+use bytes::Bytes;
 
 #[derive(Debug, Clone, Copy)]
 pub struct UploadId {
@@ -46,6 +46,6 @@ pub enum EventContent {
 }
 
 pub trait BlobStorage {
-    fn upload<R: Read + Send + 'static>(&mut self, data: R) -> UploadId;
+    fn upload(&mut self, data: Bytes) -> UploadId;
     fn events(&mut self) -> Receiver<Event>;
 }
