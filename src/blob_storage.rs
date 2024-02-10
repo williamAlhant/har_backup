@@ -2,11 +2,11 @@ use std::io::Read;
 use std::sync::mpsc::Receiver;
 
 #[derive(Debug, Clone, Copy)]
-pub struct BlobStorageUploadId {
+pub struct UploadId {
     id: u64
 }
 
-impl BlobStorageUploadId {
+impl UploadId {
     pub fn to_u64(&self) -> u64 {
         self.id
     }
@@ -17,35 +17,35 @@ impl BlobStorageUploadId {
 }
 
 #[derive(Debug, Clone)]
-pub struct BlobStorageError {
+pub struct Error {
     pub msg: String
 }
 
 #[derive(Debug, Clone)]
-pub struct BlobStorageProgress {
+pub struct Progress {
     transmitted_bytes: u64
 }
 
 #[derive(Debug, Clone)]
-pub struct BlobStorageEvent {
-    pub content: BlobStorageEventContent,
-    pub id: BlobStorageUploadId
+pub struct Event {
+    pub content: EventContent,
+    pub id: UploadId
 }
 
-impl std::fmt::Display for BlobStorageEvent {
+impl std::fmt::Display for Event {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "[task:{}] {:?}", self.id.id, self.content)
     }
 }
 
 #[derive(Debug, Clone)]
-pub enum BlobStorageEventContent {
+pub enum EventContent {
     Success(),
-    Error(BlobStorageError),
-    Progress(BlobStorageProgress)
+    Error(Error),
+    Progress(Progress)
 }
 
 pub trait BlobStorage {
-    fn upload<R: Read + Send + 'static>(&mut self, data: R) -> BlobStorageUploadId;
-    fn events(&mut self) -> Receiver<BlobStorageEvent>;
+    fn upload<R: Read + Send + 'static>(&mut self, data: R) -> UploadId;
+    fn events(&mut self) -> Receiver<Event>;
 }

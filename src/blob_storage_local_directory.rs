@@ -6,18 +6,18 @@ use super::blob_storage::*;
 
 pub struct BlobStorageLocalDirectory {
     local_dir_path: PathBuf,
-    comm: Vec<Sender<BlobStorageEvent>>,
+    comm: Vec<Sender<Event>>,
     next_upload_id: u64
 }
 
-struct BlobStorageLocalDirectoryTask<R: Read> {
+struct Task<R: Read> {
     local_dir_path: PathBuf,
-    comm: Vec<Sender<BlobStorageEvent>>,
-    id: BlobStorageUploadId,
+    comm: Vec<Sender<Event>>,
+    id: UploadId,
     data: R
 }
 
-impl<R: Read> BlobStorageLocalDirectoryTask<R> {
+impl<R: Read> Task<R> {
     fn do_task(&mut self) {
         let filesink = std::fs::File::open(self.local_dir_path.join("dummy"));
         if filesink.is_err() {
@@ -28,15 +28,15 @@ impl<R: Read> BlobStorageLocalDirectoryTask<R> {
         }
     }
 
-    fn send_event(&mut self, event: &BlobStorageEvent) {
+    fn send_event(&mut self, event: &Event) {
         for sender in &self.comm {
             sender.send(event.clone()).expect("No receiver on the other end, is it ok?");
         }
     }
 
-    fn make_error_event(&self, err_msg: String) -> BlobStorageEvent {
+    fn make_error_event(&self, err_msg: String) -> Event {
         debug!("Error in task {}: {}", self.id.to_u64(), err_msg);
-        BlobStorageEvent { id: self.id, content: BlobStorageEventContent::Error(BlobStorageError { msg: err_msg })}
+        Event { id: self.id, content: EventContent::Error(Error { msg: err_msg })}
     }
 }
 
@@ -55,11 +55,11 @@ impl BlobStorageLocalDirectory {
 }
 
 impl BlobStorage for BlobStorageLocalDirectory {
-    fn upload<R: Read + Send + 'static>(&mut self, data: R) -> BlobStorageUploadId {
-        let upload_id = BlobStorageUploadId::from_u64(self.next_upload_id);
+    fn upload<R: Read + Send + 'static>(&mut self, data: R) -> UploadId {
+        let upload_id = UploadId::from_u64(self.next_upload_id);
         self.next_upload_id += 1;
 
-        let mut task = BlobStorageLocalDirectoryTask {
+        let mut task = Task {
             local_dir_path: self.local_dir_path.clone(),
             comm: self.comm.clone(),
             id: upload_id,
@@ -75,8 +75,8 @@ impl BlobStorage for BlobStorageLocalDirectory {
         upload_id
     }
 
-    fn events(&mut self) -> Receiver<BlobStorageEvent> {
-        let (sender, receiver) = std::sync::mpsc::channel::<BlobStorageEvent>();
+    fn events(&mut self) -> Receiver<Event> {
+        let (sender, receiver) = std::sync::mpsc::channel::<Event>();
         self.comm.push(sender);
         receiver
     }
