@@ -146,6 +146,23 @@ mod tests {
         Entry::Directory(Directory {name: "imadir".to_string(), entries: HashMap::new()})
     }
 
+    fn print_entry(manifest: &Manifest, entry: &Entry, indent: usize) {
+        match entry {
+            Entry::File(file) => println!("{}{:?}", " ".repeat(indent), file),
+            Entry::Directory(dir) => {
+                println!("{}{}", " ".repeat(indent), dir.name);
+                for (entry_name, entry_id) in &dir.entries {
+                    let entry = manifest.get_entry(entry_id.clone());
+                    print_entry(manifest, entry, indent + 2);
+                }
+            }
+        }
+    }
+
+    fn print_tree(manifest: &Manifest) {
+        print_entry(manifest, manifest.get_entry(manifest.root), 0);
+    }
+
     #[test]
     fn create_file() {
         let mut manifest = Manifest::new();
@@ -169,5 +186,7 @@ mod tests {
         assert_eq!(file_a, file_b);
         assert_eq!(dummy_file().try_file_ref().unwrap(), manifest.get_entry(file_a).try_file_ref().unwrap());
         assert_eq!(manifest.entries.len(), 3);
+
+        print_tree(&manifest);
     }
 }
