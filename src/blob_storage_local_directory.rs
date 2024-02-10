@@ -43,9 +43,9 @@ impl Comm {
         self.send_event(&event);
     }
 
-    fn send_upload_success_event(&mut self) {
+    fn send_upload_success_event(&mut self, key: String) {
         debug!("Success in task {}", self.task_id.to_u64());
-        let event = Event { id: self.task_id, content: EventContent::UploadSuccess};
+        let event = Event { id: self.task_id, content: EventContent::UploadSuccess(key)};
         self.send_event(&event);
     }
 }
@@ -68,7 +68,7 @@ impl UploadTask {
 
         match std::fs::write(path, data.as_ref()) {
             Ok(_) => {
-                self.comm.send_upload_success_event();
+                self.comm.send_upload_success_event(hash_hex.as_str().to_string());
             },
             Err(err) => {
                 let err_msg = format!("Error while opening file ({})", err);

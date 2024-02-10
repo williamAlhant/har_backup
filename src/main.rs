@@ -8,12 +8,11 @@ use har_backup::blob_storage::EventContent;
 fn main() -> anyhow::Result<()> {
     env_logger::init();
     println!("Hello, world!");
-    test_download()
+    test_upload_and_download()
 }
 
 fn make_blob_storage() -> anyhow::Result<BlobStorageLocalDirectory> {
-    let dummy_key_path = PathBuf::from("/home/cookie/code/har_backup/test_files/keyfile");
-    BlobStorageLocalDirectory::new(Path::new("local_storage"), &dummy_key_path)
+    BlobStorageLocalDirectory::new(Path::new("local_storage"), Path::new("/home/cookie/code/har_backup/test_files/keyfile"))
 }
 
 fn test_upload() -> anyhow::Result<()> {
@@ -54,6 +53,33 @@ fn test_download() -> anyhow::Result<()> {
             debug!("try_recv err {}", recv_err);
         }
     }
+
+    Ok(())
+}
+
+fn test_upload_and_download() -> anyhow::Result<()> {
+    let mut blob_storage = make_blob_storage()?;
+    let filecontent = std::fs::read(Path::new("test_files/yolo"))?;
+    let events = blob_storage.events();
+
+    blob_storage.upload(bytes::Bytes::from(filecontent));
+
+    let event = events.recv()?;
+    let blob_hash = match event.content {
+        EventContent::UploadSuccess(blob_hash) => blob_hash,
+        _ => anyhow::bail!("Expected UploadSuccess")
+    };
+
+    blob_storage.download(&blob_hash);
+
+    let event = events.recv()?;
+    let mut bytes = match event.content {
+        EventContent::DownloadSuccess(bytes) => bytes,
+        _ => anyhow::bail!("Expected DownloadSuccess")
+    };
+
+    bytes.truncate(16);
+    debug!("bytes: {:?}(...)", bytes);
 
     Ok(())
 }
