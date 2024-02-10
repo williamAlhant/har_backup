@@ -19,13 +19,22 @@ struct Task {
 
 impl Task {
     fn do_task(&mut self) {
-        let filesink = std::fs::File::open(self.local_dir_path.join("dummy"));
-        if filesink.is_err() {
-            let err_msg = format!("Error while opening file ({})", filesink.err().unwrap());
-            let event = self.make_error_event(err_msg);
-            self.send_event(&event);
-            return;
-        }
+        let hash = blake3::hash(self.data.as_ref());
+        let hash_hex = hash.to_hex();
+
+        let path = self.local_dir_path.join(hash_hex.as_str());
+
+        match std::fs::write(path, self.data.as_ref()) {
+            Ok(_) => {
+                let event = self.make_success_event();
+                self.send_event(&event);
+            },
+            Err(err) => {
+                let err_msg = format!("Error while opening file ({})", err);
+                let event = self.make_error_event(err_msg);
+                self.send_event(&event);
+            }
+        };
     }
 
     fn send_event(&mut self, event: &Event) {
@@ -37,6 +46,11 @@ impl Task {
     fn make_error_event(&self, err_msg: String) -> Event {
         debug!("Error in task {}: {}", self.id.to_u64(), err_msg);
         Event { id: self.id, content: EventContent::Error(Error { msg: err_msg })}
+    }
+
+    fn make_success_event(&self) -> Event {
+        debug!("Success in task {}", self.id.to_u64());
+        Event { id: self.id, content: EventContent::Success()}
     }
 }
 
