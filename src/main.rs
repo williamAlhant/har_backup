@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use anyhow::Context;
 use log::debug;
 use har_backup::blob_storage_local_directory::BlobStorageLocalDirectory;
@@ -8,7 +8,7 @@ use har_backup::blob_storage::EventContent;
 fn main() -> anyhow::Result<()> {
     env_logger::init();
     println!("Hello, world!");
-    test_upload_and_download()
+    test_download()
 }
 
 fn make_blob_storage() -> anyhow::Result<BlobStorageLocalDirectory> {
@@ -53,33 +53,6 @@ fn test_download() -> anyhow::Result<()> {
             debug!("try_recv err {}", recv_err);
         }
     }
-
-    Ok(())
-}
-
-fn test_upload_and_download() -> anyhow::Result<()> {
-    let mut blob_storage = make_blob_storage()?;
-    let filecontent = std::fs::read(Path::new("test_files/yolo"))?;
-    let events = blob_storage.events();
-
-    blob_storage.upload(bytes::Bytes::from(filecontent));
-
-    let event = events.recv()?;
-    let blob_hash = match event.content {
-        EventContent::UploadSuccess(blob_hash) => blob_hash,
-        _ => anyhow::bail!("Expected UploadSuccess")
-    };
-
-    blob_storage.download(&blob_hash);
-
-    let event = events.recv()?;
-    let mut bytes = match event.content {
-        EventContent::DownloadSuccess(bytes) => bytes,
-        _ => anyhow::bail!("Expected DownloadSuccess")
-    };
-
-    bytes.truncate(16);
-    debug!("bytes: {:?}(...)", bytes);
 
     Ok(())
 }
