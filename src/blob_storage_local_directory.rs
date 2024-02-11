@@ -4,6 +4,7 @@ use bytes::Bytes;
 use log::debug;
 use super::blob_storage::*;
 use super::blob_encryption::EncryptWithChacha;
+use anyhow::Context;
 
 pub struct BlobStorageLocalDirectory {
     local_dir_path: PathBuf,
@@ -109,7 +110,7 @@ impl BlobStorageLocalDirectory {
         if !local_dir_path.exists() {
             anyhow::bail!("BlobStorageLocalDirectory::new Directory does not exist")
         }
-        let encrypt = EncryptWithChacha::new_with_key_from_file(encryption_key_file)?;
+        let encrypt = EncryptWithChacha::new_with_key_from_file(encryption_key_file).context("Opening key file")?;
         let me = Self {
             local_dir_path: local_dir_path.to_path_buf(),
             senders: Vec::new(),

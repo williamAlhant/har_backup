@@ -124,6 +124,10 @@ impl Manifest {
         Ok(())
     }
 
+
+    fn from_fs(fs_dir: &Path) -> Self {
+        todo!();
+    }
 }
 
 #[cfg(test)]
