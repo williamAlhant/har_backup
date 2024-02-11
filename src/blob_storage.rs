@@ -23,7 +23,7 @@ pub struct Error {
 
 #[derive(Debug, Clone)]
 pub struct Progress {
-    transmitted_bytes: u64
+    // transmitted_bytes: u64
 }
 
 #[derive(Debug, Clone)]
@@ -50,7 +50,7 @@ impl std::fmt::Debug for EventContent {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             EventContent::UploadSuccess(inner) => write!(f, "UploadSuccess({:?})", inner),
-            EventContent::DownloadSuccess(inner) => write!(f, "DownloadSuccess(...)"),
+            EventContent::DownloadSuccess(_) => write!(f, "DownloadSuccess(...)"),
             EventContent::Error(inner) => write!(f, "Error({:?})", inner),
             EventContent::Progress(inner) => write!(f, "Progress({:?})", inner),
         }

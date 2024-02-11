@@ -68,7 +68,7 @@ impl Entry {
     }
 }
 
-struct Manifest {
+pub struct Manifest {
     root: EntryId,
     entries: Vec<Entry>
 }
@@ -125,7 +125,7 @@ impl Manifest {
     }
 
 
-    fn from_fs(fs_dir: &Path) -> Self {
+    pub fn from_fs(fs_dir: &Path) -> Self {
         todo!();
     }
 }
@@ -155,7 +155,7 @@ mod tests {
             Entry::File(file) => println!("{}{:?}", " ".repeat(indent), file),
             Entry::Directory(dir) => {
                 println!("{}{}", " ".repeat(indent), dir.name);
-                for (entry_name, entry_id) in &dir.entries {
+                for (_, entry_id) in &dir.entries {
                     let entry = manifest.get_entry(entry_id.clone());
                     print_entry(manifest, entry, indent + 2);
                 }

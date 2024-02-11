@@ -2,6 +2,7 @@ use clap::{Parser, Args, Subcommand};
 use anyhow::Result;
 use har_backup::blob_storage::{EventContent, BlobStorage};
 use har_backup::blob_storage_local_directory::BlobStorageLocalDirectory;
+use har_backup::manifest::Manifest;
 use std::path::PathBuf;
 
 #[derive(Parser)]
@@ -12,9 +13,14 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    MakeManifestFromFs,
+    MakeManifestFromFs(MakeManifestFromFsCli),
     Upload(UploadCli),
     Download(DownloadCli)
+}
+
+#[derive(Args, Debug)]
+struct MakeManifestFromFsCli {
+    dir: PathBuf
 }
 
 #[derive(Args, Debug)]
@@ -43,7 +49,10 @@ fn main() -> Result<()> {
     env_logger::init();
     let cli = Cli::parse();
     match cli.command {
-        Command::MakeManifestFromFs => todo!(),
+        Command::MakeManifestFromFs(sub_cli) => {
+            println!("{:?}", sub_cli);
+            let manifest = Manifest::from_fs(&sub_cli.dir);
+        },
         Command::Upload(sub_cli) => {
             println!("{:?}", sub_cli);
             let mut blob_storage = BlobStorageLocalDirectory::new(&sub_cli.blob_storage.dir, &sub_cli.blob_storage.key)?;
