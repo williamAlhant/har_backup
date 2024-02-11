@@ -22,7 +22,9 @@ enum Command {
 struct MakeManifestFromFsCli {
     dir: PathBuf,
     #[arg(long, required=false)]
-    print_tree: bool
+    print_tree: bool,
+    #[arg(long)]
+    save_as_file: Option<PathBuf>
 }
 
 #[derive(Args, Debug)]
@@ -58,6 +60,10 @@ fn main() -> Result<()> {
             println!("{:?}", stats);
             if sub_cli.print_tree {
                 print_tree(&manifest);
+            }
+            if let Some(path) = sub_cli.save_as_file {
+                manifest.save_as_file(&path)?;
+                println!("Saved as file");
             }
         },
         Command::Upload(sub_cli) => {

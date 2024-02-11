@@ -1,8 +1,9 @@
 use std::path::{Path, Component};
 use std::collections::HashMap;
 use anyhow::Context;
+use serde::{Deserialize, Serialize, Serializer};
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
 pub struct EntryId {
     id: usize
 }
@@ -17,7 +18,7 @@ impl EntryId {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 struct Directory {
     name: String,
     entries: HashMap<String, EntryId>
@@ -26,6 +27,15 @@ struct Directory {
 #[derive(Clone, PartialEq)]
 struct BlobKey {
     key: blake3::Hash
+}
+
+impl Serialize for BlobKey {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_bytes(self.key.as_bytes())
+    }
 }
 
 impl std::fmt::Debug for BlobKey {
@@ -44,13 +54,13 @@ impl Default for BlobKey {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 struct File {
     name: String,
     blob_key: BlobKey
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 enum Entry {
     Directory(Directory),
     File(File)
@@ -77,6 +87,7 @@ impl Entry {
     }
 }
 
+#[derive(Serialize)]
 pub struct Manifest {
     root: EntryId,
     entries: Vec<Entry>
@@ -178,6 +189,12 @@ impl Manifest {
             }
         }
         stats
+    }
+
+    pub fn save_as_file(&self, path: &Path) -> anyhow::Result<()> {
+        let mut file = std::fs::File::create(path).context("Create/open file for saving manifest")?;
+        rmp_serde::encode::write(&mut file, &self).context("Serialize/write manifest into file")?;
+        Ok(())
     }
 }
 
