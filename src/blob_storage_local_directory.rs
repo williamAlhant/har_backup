@@ -53,6 +53,9 @@ impl Comm {
 impl UploadTask {
     fn do_task(&mut self) {
 
+        let hash_name = get_hash_name(self.local_dir_path.to_str().unwrap(), self.data.clone());
+        let path = self.local_dir_path.join(hash_name.as_str());
+
         let data = match self.encrypt.encrypt_blob(self.data.clone()) {
             Ok(data) => data,
             Err(err) => {
@@ -62,13 +65,9 @@ impl UploadTask {
             }
         };
 
-        let hash = blake3::hash(data.as_ref());
-        let hash_hex = hash.to_hex();
-        let path = self.local_dir_path.join(hash_hex.as_str());
-
         match std::fs::write(path, data.as_ref()) {
             Ok(_) => {
-                self.comm.send_upload_success_event(hash_hex.as_str().to_string());
+                self.comm.send_upload_success_event(hash_name);
             },
             Err(err) => {
                 let err_msg = format!("Error while opening file ({})", err);

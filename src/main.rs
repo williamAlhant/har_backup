@@ -8,7 +8,7 @@ use har_backup::blob_storage::EventContent;
 fn main() -> anyhow::Result<()> {
     env_logger::init();
     println!("Hello, world!");
-    test_download()
+    test_upload()
 }
 
 fn make_blob_storage() -> anyhow::Result<BlobStorageLocalDirectory> {

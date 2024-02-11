@@ -62,3 +62,13 @@ pub trait BlobStorage {
     fn download(&mut self, key: &str) -> TaskId;
     fn events(&mut self) -> Receiver<Event>;
 }
+
+pub(crate) fn get_hash_name(bucket_name: &str, data: Bytes) -> String {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update("har_backup".as_bytes());
+    hasher.update(bucket_name.as_bytes());
+    hasher.update(data.as_ref());
+    let hash = hasher.finalize();
+    let hash_hex = hash.to_hex();
+    hash_hex.to_string()
+}
