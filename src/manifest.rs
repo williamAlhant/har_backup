@@ -35,6 +35,15 @@ impl std::fmt::Debug for BlobKey {
     }
 }
 
+impl Default for BlobKey {
+    fn default() -> Self {
+        let all_zero = [0; blake3::OUT_LEN];
+        Self {
+            key: blake3::Hash::from_bytes(all_zero)
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 struct File {
     name: String,
@@ -108,7 +117,7 @@ impl Manifest {
         last_entry_id.context("last_entry is none?")
     }
 
-    fn add(&mut self, entry: Entry, parent_dir: EntryId) -> anyhow::Result<()> {
+    fn add(&mut self, entry: Entry, parent_dir: EntryId) -> anyhow::Result<EntryId> {
         {
             let parent_dir = self.entries[parent_dir.to_usize()].try_directory_ref()?;
             let maybe_exists = parent_dir.entries.get(entry.name());
@@ -121,13 +130,51 @@ impl Manifest {
         self.entries.push(entry);
         let parent_dir = self.entries[parent_dir.to_usize()].try_directory_ref_mut()?;
         parent_dir.entries.insert(entry_name, entry_id);
+        Ok(entry_id)
+    }
+
+    pub fn from_fs(fs_dir: &Path) -> anyhow::Result<Self> {
+        let mut me = Self::new();
+        me.add_dir_from_fs(me.root, fs_dir)?;
+        Ok(me)
+    }
+
+    fn add_dir_from_fs(&mut self, dir: EntryId, fs_dir: &Path) -> anyhow::Result<()>  {
+        let fs_dir_content = std::fs::read_dir(fs_dir).context("Reading fs_dir")?;
+        for fs_dir_entry in fs_dir_content {
+            let fs_dir_entry = fs_dir_entry.context("Reading fs_dir entry")?;
+            let file_type = fs_dir_entry.file_type().context("Getting file type")?;
+            let entry_name = fs_dir_entry.file_name().into_string().expect("Convert osstr to string");
+
+            if file_type.is_dir() {
+                let manifest_entry = Entry::Directory(Directory {name: entry_name, entries: HashMap::new()});
+                let new_dir = self.add(manifest_entry, dir)?;
+                self.add_dir_from_fs(new_dir, &fs_dir_entry.path())?;
+            }
+            else if file_type.is_file() {
+                let manifest_entry = Entry::File(File {name: entry_name, blob_key: BlobKey::default()});
+                self.add(manifest_entry, dir)?;
+            }
+        }
         Ok(())
     }
+}
 
-
-    pub fn from_fs(fs_dir: &Path) -> Self {
-        todo!();
+fn print_entry(manifest: &Manifest, entry: &Entry, indent: usize) {
+    match entry {
+        Entry::File(file) => println!("{}{:?}", " ".repeat(indent), file),
+        Entry::Directory(dir) => {
+            println!("{}{}", " ".repeat(indent), dir.name);
+            for (_, entry_id) in &dir.entries {
+                let entry = manifest.get_entry(entry_id.clone());
+                print_entry(manifest, entry, indent + 2);
+            }
+        }
     }
+}
+
+pub fn print_tree(manifest: &Manifest) {
+    print_entry(manifest, manifest.get_entry(manifest.root), 0);
 }
 
 #[cfg(test)]
@@ -148,23 +195,6 @@ mod tests {
 
     fn dummy_dir() -> Entry {
         Entry::Directory(Directory {name: "imadir".to_string(), entries: HashMap::new()})
-    }
-
-    fn print_entry(manifest: &Manifest, entry: &Entry, indent: usize) {
-        match entry {
-            Entry::File(file) => println!("{}{:?}", " ".repeat(indent), file),
-            Entry::Directory(dir) => {
-                println!("{}{}", " ".repeat(indent), dir.name);
-                for (_, entry_id) in &dir.entries {
-                    let entry = manifest.get_entry(entry_id.clone());
-                    print_entry(manifest, entry, indent + 2);
-                }
-            }
-        }
-    }
-
-    fn print_tree(manifest: &Manifest) {
-        print_entry(manifest, manifest.get_entry(manifest.root), 0);
     }
 
     #[test]

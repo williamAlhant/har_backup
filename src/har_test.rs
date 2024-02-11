@@ -1,8 +1,8 @@
 use clap::{Parser, Args, Subcommand};
-use anyhow::Result;
+use anyhow::{Result, Context};
 use har_backup::blob_storage::{EventContent, BlobStorage};
 use har_backup::blob_storage_local_directory::BlobStorageLocalDirectory;
-use har_backup::manifest::Manifest;
+use har_backup::manifest::{Manifest, print_tree};
 use std::path::PathBuf;
 
 #[derive(Parser)]
@@ -51,7 +51,8 @@ fn main() -> Result<()> {
     match cli.command {
         Command::MakeManifestFromFs(sub_cli) => {
             println!("{:?}", sub_cli);
-            let manifest = Manifest::from_fs(&sub_cli.dir);
+            let manifest = Manifest::from_fs(&sub_cli.dir).context("Making manifest from fs")?;
+            print_tree(&manifest);
         },
         Command::Upload(sub_cli) => {
             println!("{:?}", sub_cli);
