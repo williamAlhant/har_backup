@@ -82,6 +82,12 @@ pub struct Manifest {
     entries: Vec<Entry>
 }
 
+#[derive(Debug, Default)]
+pub struct Stats {
+    num_dirs: usize,
+    num_files: usize
+}
+
 impl Manifest {
     fn new() -> Self {
         let root_entry = Entry::Directory(Directory { name: "ROOT".to_string(), entries: HashMap::new() });
@@ -157,6 +163,21 @@ impl Manifest {
             }
         }
         Ok(())
+    }
+
+    pub fn get_stats(&self) -> Stats {
+        let mut stats = Stats::default();
+        for entry in &self.entries {
+            match entry {
+                Entry::Directory(_) => {
+                    stats.num_dirs += 1;
+                },
+                Entry::File(_) => {
+                    stats.num_files += 1;
+                }
+            }
+        }
+        stats
     }
 }
 

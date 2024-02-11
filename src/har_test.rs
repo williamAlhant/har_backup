@@ -20,7 +20,9 @@ enum Command {
 
 #[derive(Args, Debug)]
 struct MakeManifestFromFsCli {
-    dir: PathBuf
+    dir: PathBuf,
+    #[arg(long, required=false)]
+    print_tree: bool
 }
 
 #[derive(Args, Debug)]
@@ -52,7 +54,11 @@ fn main() -> Result<()> {
         Command::MakeManifestFromFs(sub_cli) => {
             println!("{:?}", sub_cli);
             let manifest = Manifest::from_fs(&sub_cli.dir).context("Making manifest from fs")?;
-            print_tree(&manifest);
+            let stats = manifest.get_stats();
+            println!("{:?}", stats);
+            if sub_cli.print_tree {
+                print_tree(&manifest);
+            }
         },
         Command::Upload(sub_cli) => {
             println!("{:?}", sub_cli);
