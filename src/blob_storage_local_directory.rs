@@ -15,6 +15,7 @@ pub struct BlobStorageLocalDirectory {
 
 struct UploadTask {
     local_dir_path: PathBuf,
+    key: Option<String>,
     comm: Comm,
     data: Bytes,
     encrypt: EncryptWithChacha
@@ -54,8 +55,11 @@ impl Comm {
 impl UploadTask {
     fn do_task(&mut self) {
 
-        let hash_name = get_hash_name(self.local_dir_path.to_str().unwrap(), self.data.clone());
-        let path = self.local_dir_path.join(hash_name.as_str());
+        let key = match &self.key {
+            Some(key) => key.clone(),
+            None => get_hash_name(self.local_dir_path.to_str().unwrap(), self.data.clone())
+        };
+        let path = self.local_dir_path.join(key.as_str());
 
         let data = match self.encrypt.encrypt_blob(self.data.clone()) {
             Ok(data) => data,
@@ -68,7 +72,7 @@ impl UploadTask {
 
         match std::fs::write(path, data.as_ref()) {
             Ok(_) => {
-                self.comm.send_upload_success_event(hash_name);
+                self.comm.send_upload_success_event(key);
             },
             Err(err) => {
                 let err_msg = format!("Error while opening file ({})", err);
@@ -122,12 +126,13 @@ impl BlobStorageLocalDirectory {
 }
 
 impl BlobStorage for BlobStorageLocalDirectory {
-    fn upload(&mut self, data: Bytes) -> TaskId {
+    fn upload(&mut self, data: Bytes, key: Option<&str>) -> TaskId {
         let upload_id = TaskId::from_u64(self.next_task_id);
         self.next_task_id += 1;
 
         let mut task = UploadTask {
             local_dir_path: self.local_dir_path.clone(),
+            key: key.map(String::from),
             comm: Comm { senders: self.senders.clone(), task_id: upload_id },
             data,
             encrypt: self.encrypt.clone()

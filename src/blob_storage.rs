@@ -58,7 +58,7 @@ impl std::fmt::Debug for EventContent {
 }
 
 pub trait BlobStorage {
-    fn upload(&mut self, data: Bytes) -> TaskId;
+    fn upload(&mut self, data: Bytes, key: Option<&str>) -> TaskId;
     fn download(&mut self, key: &str) -> TaskId;
     fn events(&mut self) -> Receiver<Event>;
 }

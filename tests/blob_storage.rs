@@ -15,7 +15,7 @@ fn local_directory_upload_and_download() {
 
     let events = blob_storage.events();
 
-    blob_storage.upload(dummy_payload.clone());
+    blob_storage.upload(dummy_payload.clone(), None);
 
     let event = events.recv().expect("receive an event for upload");
     let blob_hash = match event.content {

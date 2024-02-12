@@ -71,7 +71,7 @@ fn main() -> Result<()> {
             let mut blob_storage = BlobStorageLocalDirectory::new(&sub_cli.blob_storage.dir, &sub_cli.blob_storage.key)?;
             println!("Blob storage object created");
             let events = blob_storage.events();
-            blob_storage.upload(bytes::Bytes::from(sub_cli.data));
+            blob_storage.upload(bytes::Bytes::from(sub_cli.data), None);
             let event = events.recv().expect("receive an event for upload");
             let blob_hash = match event.content {
                 EventContent::UploadSuccess(blob_hash) => blob_hash,
