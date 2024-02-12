@@ -1,4 +1,4 @@
-use std::sync::mpsc::Receiver;
+use super::thread_sync::Receiver;
 use bytes::Bytes;
 
 #[derive(Debug, Clone, Copy, PartialEq)]

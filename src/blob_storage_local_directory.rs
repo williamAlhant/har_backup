@@ -1,4 +1,4 @@
-use std::sync::mpsc::{Sender, Receiver};
+use super::thread_sync::{Sender, Receiver};
 use std::path::{Path, PathBuf};
 use bytes::Bytes;
 use log::debug;
@@ -35,7 +35,10 @@ struct Comm {
 impl Comm {
     fn send_event(&mut self, event: &Event) {
         for sender in &self.senders {
-            sender.send(event.clone()).expect("No receiver on the other end, is it ok?");
+            match sender.send(event.clone()) {
+                Ok(_) => (),
+                Err(_) => () // it's ok if it's disconnected
+            }
         }
     }
 
@@ -139,6 +142,8 @@ impl BlobStorage for BlobStorageLocalDirectory {
         let upload_id = TaskId::from_u64(self.next_task_id);
         self.next_task_id += 1;
 
+        self.clean_senders();
+
         let mut task = UploadTask {
             local_dir_path: self.local_dir_path.clone(),
             key: key.map(String::from),
@@ -161,6 +166,8 @@ impl BlobStorage for BlobStorageLocalDirectory {
         let download_id = TaskId::from_u64(self.next_task_id);
         self.next_task_id += 1;
 
+        self.clean_senders();
+
         let mut task = DownloadTask {
             blob_path: self.local_dir_path.join(key),
             comm: Comm { senders: self.senders.clone(), task_id: download_id },
@@ -178,8 +185,19 @@ impl BlobStorage for BlobStorageLocalDirectory {
     }
 
     fn events(&mut self) -> Receiver<Event> {
-        let (sender, receiver) = std::sync::mpsc::channel::<Event>();
+        let (sender, receiver) = super::thread_sync::channel::<Event>();
         self.senders.push(sender);
         receiver
+    }
+}
+
+impl BlobStorageLocalDirectory {
+    fn clean_senders(&mut self) {
+        let num_senders_before = self.senders.len();
+        self.senders.retain(|sender| !sender.disconnected());
+        let num_sender_diff = num_senders_before - self.senders.len();
+        if num_sender_diff > 0 {
+            debug!("Removed {} senders", num_sender_diff);
+        }
     }
 }
