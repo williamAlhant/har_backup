@@ -1,7 +1,7 @@
 use std::sync::mpsc::Receiver;
 use bytes::Bytes;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct TaskId {
     id: u64
 }
@@ -19,6 +19,16 @@ impl TaskId {
 #[derive(Debug, Clone)]
 pub struct Error {
     pub msg: String
+}
+
+impl std::fmt::Display for Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        write!(f, "{}", self.msg)
+    }
+}
+
+impl std::error::Error for Error {
+
 }
 
 #[derive(Debug, Clone)]
@@ -46,6 +56,8 @@ pub enum EventContent {
     Progress(Progress)
 }
 
+pub type DownloadResult = Result<Bytes, Error>;
+
 impl std::fmt::Debug for EventContent {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -61,6 +73,19 @@ pub trait BlobStorage {
     fn upload(&mut self, data: Bytes, key: Option<&str>) -> TaskId;
     fn download(&mut self, key: &str) -> TaskId;
     fn events(&mut self) -> Receiver<Event>;
+
+    fn download_blocking(&mut self, key: &str) -> DownloadResult {
+        let events = self.events();
+        let task_id = self.download(key);
+        // todo, loop until the taskId matches the event...
+        let event = events.recv().expect("receive an event for download");
+        assert!(event.id == task_id);
+        match event.content {
+            EventContent::DownloadSuccess(bytes) => Ok(bytes),
+            EventContent::Error(err) => Err(err),
+            _ => todo!()
+        }
+    }
 }
 
 pub(crate) fn get_hash_name(bucket_name: &str, data: Bytes) -> String {
