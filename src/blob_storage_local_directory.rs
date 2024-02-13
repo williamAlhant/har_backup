@@ -8,22 +8,19 @@ use anyhow::Context;
 
 pub struct BlobStorageLocalDirectory {
     local_dir_path: PathBuf,
-    senders: Vec<Sender<Event>>,
-    next_task_id: u64,
-    encrypt: EncryptWithChacha
+    encrypt: EncryptWithChacha,
+    task_helper: TaskHelper
 }
 
 struct UploadTask {
     local_dir_path: PathBuf,
     key: Option<String>,
-    comm: Comm,
     data: Bytes,
     encrypt: EncryptWithChacha
 }
 
 struct DownloadTask {
     blob_path: PathBuf,
-    comm: Comm,
     encrypt: EncryptWithChacha
 }
 
@@ -64,8 +61,9 @@ fn set_thread_panic_hook() {
     }));
 }
 
-impl UploadTask {
-    fn do_task(&mut self) {
+impl Task for UploadTask {
+    fn run(&mut self, mut comm: Comm) {
+        debug!("Running UploadTask id:{}", comm.task_id.to_u64());
 
         let key = match &self.key {
             Some(key) => key.clone(),
@@ -77,30 +75,32 @@ impl UploadTask {
             Ok(data) => data,
             Err(err) => {
                 let err_msg = format!("Error while encrypting ({})", err);
-                self.comm.send_error_event(err_msg);
+                comm.send_error_event(err_msg);
                 return;
             }
         };
 
         match std::fs::write(path, data.as_ref()) {
             Ok(_) => {
-                self.comm.send_upload_success_event(key);
+                comm.send_upload_success_event(key);
             },
             Err(err) => {
                 let err_msg = format!("Error while opening file ({})", err);
-                self.comm.send_error_event(err_msg);
+                comm.send_error_event(err_msg);
             }
         };
     }
 }
 
-impl DownloadTask {
-    fn do_task(&mut self) {
+impl Task for DownloadTask {
+    fn run(&mut self, mut comm: Comm) {
+        debug!("Running DownloadTask id:{}", comm.task_id.to_u64());
+
         let blob = match std::fs::read(&self.blob_path) {
             Ok(data) => data,
             Err(err) => {
                 let err_msg = format!("Error while opening/reading {:?} ({})", self.blob_path.to_str(), err);
-                self.comm.send_error_event(err_msg);
+                comm.send_error_event(err_msg);
                 return;
             }
         };
@@ -109,15 +109,15 @@ impl DownloadTask {
             Ok(data) => data,
             Err(err) => {
                 let err_msg = format!("Error while decrypting ({})", err);
-                self.comm.send_error_event(err_msg);
+                comm.send_error_event(err_msg);
                 return;
             }
         };
 
-        debug!("Success in task {}", self.comm.task_id.to_u64());
+        debug!("Success in task {}", comm.task_id.to_u64());
         let content = EventContent::DownloadSuccess(decrypted);
-        let event = Event { id: self.comm.task_id, content};
-        self.comm.send_event(&event);
+        let event = Event { id: comm.task_id, content};
+        comm.send_event(&event);
     }
 }
 
@@ -129,9 +129,8 @@ impl BlobStorageLocalDirectory {
         let encrypt = EncryptWithChacha::new_with_key_from_file(encryption_key_file).context("Opening key file")?;
         let me = Self {
             local_dir_path: local_dir_path.to_path_buf(),
-            senders: Vec::new(),
-            next_task_id: 0,
-            encrypt
+            encrypt,
+            task_helper: TaskHelper::new()
         };
         Ok(me)
     }
@@ -139,59 +138,67 @@ impl BlobStorageLocalDirectory {
 
 impl BlobStorage for BlobStorageLocalDirectory {
     fn upload(&mut self, data: Bytes, key: Option<&str>) -> TaskId {
-        let upload_id = TaskId::from_u64(self.next_task_id);
-        self.next_task_id += 1;
 
-        self.clean_senders();
-
-        let mut task = UploadTask {
+        let task = UploadTask {
             local_dir_path: self.local_dir_path.clone(),
             key: key.map(String::from),
-            comm: Comm { senders: self.senders.clone(), task_id: upload_id },
             data,
             encrypt: self.encrypt.clone()
         };
 
-        debug!("Spawning upload task for id {}", upload_id.to_u64());
-
-        std::thread::spawn(move || {
-            set_thread_panic_hook();
-            task.do_task();
-        });
-
-        upload_id
+        self.task_helper.run_task(task)
     }
 
     fn download(&mut self, key: &str) -> TaskId {
-        let download_id = TaskId::from_u64(self.next_task_id);
-        self.next_task_id += 1;
 
-        self.clean_senders();
-
-        let mut task = DownloadTask {
+        let task = DownloadTask {
             blob_path: self.local_dir_path.join(key),
-            comm: Comm { senders: self.senders.clone(), task_id: download_id },
             encrypt: self.encrypt.clone()
         };
 
-        debug!("Spawning download task for id {}", download_id.to_u64());
-
-        std::thread::spawn(move || {
-            set_thread_panic_hook();
-            task.do_task();
-        });
-
-        download_id
+        self.task_helper.run_task(task)
     }
 
     fn events(&mut self) -> Receiver<Event> {
         let (sender, receiver) = super::thread_sync::channel::<Event>();
-        self.senders.push(sender);
+        self.task_helper.senders.push(sender);
         receiver
     }
 }
 
-impl BlobStorageLocalDirectory {
+struct TaskHelper {
+    senders: Vec<Sender<Event>>,
+    next_task_id: u64,
+}
+
+trait Task : Send {
+    fn run(&mut self, comm: Comm);
+}
+
+impl TaskHelper {
+    fn new() -> Self {
+        Self {
+            senders: Vec::new(),
+            next_task_id: 0,
+        }
+    }
+
+    fn run_task<T: Task + 'static>(&mut self, mut task: T) -> TaskId {
+        let task_id = TaskId::from_u64(self.next_task_id);
+        self.next_task_id += 1;
+
+        self.clean_senders();
+
+        let senders = self.senders.clone();
+
+        std::thread::spawn(move || {
+            set_thread_panic_hook();
+            task.run(Comm { senders, task_id });
+        });
+
+        task_id
+    }
+
     fn clean_senders(&mut self) {
         let num_senders_before = self.senders.len();
         self.senders.retain(|sender| !sender.disconnected());
