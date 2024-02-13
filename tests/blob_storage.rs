@@ -6,14 +6,14 @@ use std::io::Write;
 use anyhow::Result;
 use std::path::Path;
 
-fn make_dummy_keyfile() -> NamedTempFile {
+pub fn make_dummy_keyfile() -> NamedTempFile {
     let mut keyfile = tempfile::NamedTempFile::new().expect("create tempfile for dummy encryption key");
     let key: [u8; 32] = [1, 2, 3, 4, 5, 6, 7, 8, 1, 2, 3, 4, 5, 6, 7, 8, 1, 2, 3, 4, 5, 6, 7, 8, 1, 2, 3, 4, 5, 6, 7, 8];
     keyfile.write_all(&key).expect("write key file content");
     keyfile
 }
 
-fn make_dummy_blob_storage(dirpath: &Path) -> BlobStorageLocalDirectory {
+pub fn make_dummy_blob_storage(dirpath: &Path) -> BlobStorageLocalDirectory {
     let keyfile = make_dummy_keyfile();
     BlobStorageLocalDirectory::new(dirpath, keyfile.path()).expect("create blob storage")
 }

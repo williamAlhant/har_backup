@@ -56,6 +56,7 @@ pub enum EventContent {
     Progress(Progress)
 }
 
+pub type UploadResult = Result<String, Error>;
 pub type DownloadResult = Result<Bytes, Error>;
 
 impl std::fmt::Debug for EventContent {
@@ -73,6 +74,19 @@ pub trait BlobStorage {
     fn upload(&mut self, data: Bytes, key: Option<&str>) -> TaskId;
     fn download(&mut self, key: &str) -> TaskId;
     fn events(&mut self) -> Receiver<Event>;
+
+    fn upload_blocking(&mut self, data: Bytes, key: Option<&str>) -> UploadResult {
+        let events = self.events();
+        let task_id = self.upload(data, key);
+        // todo, loop until the taskId matches the event...
+        let event = events.recv().expect("receive an event for upload");
+        assert!(event.id == task_id);
+        match event.content {
+            EventContent::UploadSuccess(key) => Ok(key),
+            EventContent::Error(err) => Err(err),
+            _ => todo!()
+        }
+    }
 
     fn download_blocking(&mut self, key: &str) -> DownloadResult {
         let events = self.events();

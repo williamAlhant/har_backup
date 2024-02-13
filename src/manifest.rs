@@ -100,7 +100,7 @@ pub struct Stats {
 }
 
 impl Manifest {
-    fn new() -> Self {
+    pub fn new() -> Self {
         let root_entry = Entry::Directory(Directory { name: "ROOT".to_string(), entries: HashMap::new() });
         Self {
             root: EntryId::from_usize(0),
@@ -195,6 +195,11 @@ impl Manifest {
         let mut file = std::fs::File::create(path).context("Create/open file for saving manifest")?;
         rmp_serde::encode::write(&mut file, &self).context("Serialize/write manifest into file")?;
         Ok(())
+    }
+
+    pub fn to_bytes(&self) -> anyhow::Result<bytes::Bytes> {
+        let serialized = rmp_serde::encode::to_vec(&self).context("Serialize manifest into bytes")?;
+        Ok(bytes::Bytes::from(serialized))
     }
 }
 
