@@ -24,6 +24,10 @@ struct DownloadTask {
     encrypt: EncryptWithChacha
 }
 
+struct ExistsTask {
+    blob_path: PathBuf,
+}
+
 struct Comm {
     senders: Vec<Sender<Event>>,
     task_id: TaskId
@@ -121,6 +125,15 @@ impl Task for DownloadTask {
     }
 }
 
+impl Task for ExistsTask {
+    fn run(&mut self, mut comm: Comm) {
+        let path_exists = self.blob_path.exists();
+        let content = EventContent::ExistsSuccess(path_exists);
+        let event = Event { id: comm.task_id, content};
+        comm.send_event(&event);
+    }
+}
+
 impl BlobStorageLocalDirectory {
     pub fn new(local_dir_path: &Path, encryption_key_file: &Path) -> anyhow::Result<Self> {
         if !local_dir_path.exists() {
@@ -154,6 +167,15 @@ impl BlobStorage for BlobStorageLocalDirectory {
         let task = DownloadTask {
             blob_path: self.local_dir_path.join(key),
             encrypt: self.encrypt.clone()
+        };
+
+        self.task_helper.run_task(task)
+    }
+
+    fn exists(&mut self, key: &str) -> TaskId {
+
+        let task = ExistsTask {
+            blob_path: self.local_dir_path.join(key),
         };
 
         self.task_helper.run_task(task)

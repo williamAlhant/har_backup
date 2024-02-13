@@ -53,19 +53,19 @@ pub enum EventContent {
     UploadSuccess(String), // contains blob name/key, ie hash of encrypted data
     DownloadSuccess(Bytes), // contains downloaded data
     Error(Error),
-    Progress(Progress)
+    Progress(Progress),
+    ExistsSuccess(bool),
 }
 
 pub type UploadResult = Result<String, Error>;
 pub type DownloadResult = Result<Bytes, Error>;
+pub type ExistsResult = Result<bool, Error>;
 
 impl std::fmt::Debug for EventContent {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            EventContent::UploadSuccess(inner) => write!(f, "UploadSuccess({:?})", inner),
             EventContent::DownloadSuccess(_) => write!(f, "DownloadSuccess(...)"),
-            EventContent::Error(inner) => write!(f, "Error({:?})", inner),
-            EventContent::Progress(inner) => write!(f, "Progress({:?})", inner),
+            x => write!(f, "{:?}", x),
         }
     }
 }
@@ -73,6 +73,7 @@ impl std::fmt::Debug for EventContent {
 pub trait BlobStorage {
     fn upload(&mut self, data: Bytes, key: Option<&str>) -> TaskId;
     fn download(&mut self, key: &str) -> TaskId;
+    fn exists(&mut self, key: &str) -> TaskId;
     fn events(&mut self) -> Receiver<Event>;
 
     fn upload_blocking(&mut self, data: Bytes, key: Option<&str>) -> UploadResult {
@@ -96,6 +97,19 @@ pub trait BlobStorage {
         assert!(event.id == task_id);
         match event.content {
             EventContent::DownloadSuccess(bytes) => Ok(bytes),
+            EventContent::Error(err) => Err(err),
+            _ => todo!()
+        }
+    }
+
+    fn exists_blocking(&mut self, key: &str) -> ExistsResult {
+        let events = self.events();
+        let task_id = self.exists(key);
+        // todo, loop until the taskId matches the event...
+        let event = events.recv().expect("receive an event for exists");
+        assert!(event.id == task_id);
+        match event.content {
+            EventContent::ExistsSuccess(exists) => Ok(exists),
             EventContent::Error(err) => Err(err),
             _ => todo!()
         }

@@ -19,6 +19,6 @@ fn init_twice() -> Result<()> {
     let blob_storage = make_dummy_blob_storage(tempdir.path());
     let mut mirror = Mirror::new(Box::new(blob_storage));
     mirror.init()?;
-    mirror.init()?;
+    assert!(mirror.init().is_err());
     Ok(())
 }
