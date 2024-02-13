@@ -76,44 +76,9 @@ pub trait BlobStorage {
     fn exists(&mut self, key: &str) -> TaskId;
     fn events(&mut self) -> Receiver<Event>;
 
-    fn upload_blocking(&mut self, data: Bytes, key: Option<&str>) -> UploadResult {
-        let events = self.events();
-        let task_id = self.upload(data, key);
-        // todo, loop until the taskId matches the event...
-        let event = events.recv().expect("receive an event for upload");
-        assert!(event.id == task_id);
-        match event.content {
-            EventContent::UploadSuccess(key) => Ok(key),
-            EventContent::Error(err) => Err(err),
-            _ => todo!()
-        }
-    }
-
-    fn download_blocking(&mut self, key: &str) -> DownloadResult {
-        let events = self.events();
-        let task_id = self.download(key);
-        // todo, loop until the taskId matches the event...
-        let event = events.recv().expect("receive an event for download");
-        assert!(event.id == task_id);
-        match event.content {
-            EventContent::DownloadSuccess(bytes) => Ok(bytes),
-            EventContent::Error(err) => Err(err),
-            _ => todo!()
-        }
-    }
-
-    fn exists_blocking(&mut self, key: &str) -> ExistsResult {
-        let events = self.events();
-        let task_id = self.exists(key);
-        // todo, loop until the taskId matches the event...
-        let event = events.recv().expect("receive an event for exists");
-        assert!(event.id == task_id);
-        match event.content {
-            EventContent::ExistsSuccess(exists) => Ok(exists),
-            EventContent::Error(err) => Err(err),
-            _ => todo!()
-        }
-    }
+    fn upload_blocking(&mut self, data: Bytes, key: Option<&str>) -> UploadResult;
+    fn download_blocking(&mut self, key: &str) -> DownloadResult;
+    fn exists_blocking(&mut self, key: &str) -> ExistsResult;
 }
 
 pub(crate) fn get_hash_name(bucket_name: &str, data: Bytes) -> String {

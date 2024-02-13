@@ -28,12 +28,33 @@ struct ExistsTask {
     blob_path: PathBuf,
 }
 
-struct Comm {
+struct AsyncComm {
     senders: Vec<Sender<Event>>,
     task_id: TaskId
 }
 
-impl Comm {
+struct SyncComm<'a> {
+    events: &'a mut Vec<Event>
+}
+
+trait Comm {
+    fn send_event(&mut self, event: &Event);
+    fn task_id(&self) -> TaskId;
+
+    fn send_error_event(&mut self, err_msg: String) {
+        debug!("Error in task {}: {}", self.task_id().to_u64(), err_msg);
+        let event = Event { id: self.task_id(), content: EventContent::Error(Error { msg: err_msg })};
+        self.send_event(&event);
+    }
+
+    fn send_upload_success_event(&mut self, key: String) {
+        debug!("Success in task {}", self.task_id().to_u64());
+        let event = Event { id: self.task_id(), content: EventContent::UploadSuccess(key)};
+        self.send_event(&event);
+    }
+}
+
+impl Comm for AsyncComm {
     fn send_event(&mut self, event: &Event) {
         for sender in &self.senders {
             match sender.send(event.clone()) {
@@ -42,17 +63,17 @@ impl Comm {
             }
         }
     }
-
-    fn send_error_event(&mut self, err_msg: String) {
-        debug!("Error in task {}: {}", self.task_id.to_u64(), err_msg);
-        let event = Event { id: self.task_id, content: EventContent::Error(Error { msg: err_msg })};
-        self.send_event(&event);
+    fn task_id(&self) -> TaskId {
+        self.task_id
     }
+}
 
-    fn send_upload_success_event(&mut self, key: String) {
-        debug!("Success in task {}", self.task_id.to_u64());
-        let event = Event { id: self.task_id, content: EventContent::UploadSuccess(key)};
-        self.send_event(&event);
+impl<'a> Comm for SyncComm<'a> {
+    fn send_event(&mut self, event: &Event) {
+        self.events.push(event.clone());
+    }
+    fn task_id(&self) -> TaskId {
+        TaskId::from_u64(0)
     }
 }
 
@@ -66,8 +87,8 @@ fn set_thread_panic_hook() {
 }
 
 impl Task for UploadTask {
-    fn run(&mut self, mut comm: Comm) {
-        debug!("Running UploadTask id:{}", comm.task_id.to_u64());
+    fn run<T: Comm>(&mut self, mut comm: T) {
+        debug!("Running UploadTask id:{}", comm.task_id().to_u64());
 
         let key = match &self.key {
             Some(key) => key.clone(),
@@ -97,8 +118,8 @@ impl Task for UploadTask {
 }
 
 impl Task for DownloadTask {
-    fn run(&mut self, mut comm: Comm) {
-        debug!("Running DownloadTask id:{}", comm.task_id.to_u64());
+    fn run<T: Comm>(&mut self, mut comm: T) {
+        debug!("Running DownloadTask id:{}", comm.task_id().to_u64());
 
         let blob = match std::fs::read(&self.blob_path) {
             Ok(data) => data,
@@ -118,18 +139,18 @@ impl Task for DownloadTask {
             }
         };
 
-        debug!("Success in task {}", comm.task_id.to_u64());
+        debug!("Success in task {}", comm.task_id().to_u64());
         let content = EventContent::DownloadSuccess(decrypted);
-        let event = Event { id: comm.task_id, content};
+        let event = Event { id: comm.task_id(), content};
         comm.send_event(&event);
     }
 }
 
 impl Task for ExistsTask {
-    fn run(&mut self, mut comm: Comm) {
+    fn run<T: Comm>(&mut self, mut comm: T) {
         let path_exists = self.blob_path.exists();
         let content = EventContent::ExistsSuccess(path_exists);
-        let event = Event { id: comm.task_id, content};
+        let event = Event { id: comm.task_id(), content};
         comm.send_event(&event);
     }
 }
@@ -151,33 +172,17 @@ impl BlobStorageLocalDirectory {
 
 impl BlobStorage for BlobStorageLocalDirectory {
     fn upload(&mut self, data: Bytes, key: Option<&str>) -> TaskId {
-
-        let task = UploadTask {
-            local_dir_path: self.local_dir_path.clone(),
-            key: key.map(String::from),
-            data,
-            encrypt: self.encrypt.clone()
-        };
-
+        let task = self.new_upload_task(data, key);
         self.task_helper.run_task(task)
     }
 
     fn download(&mut self, key: &str) -> TaskId {
-
-        let task = DownloadTask {
-            blob_path: self.local_dir_path.join(key),
-            encrypt: self.encrypt.clone()
-        };
-
+        let task = self.new_download_task(key);
         self.task_helper.run_task(task)
     }
 
     fn exists(&mut self, key: &str) -> TaskId {
-
-        let task = ExistsTask {
-            blob_path: self.local_dir_path.join(key),
-        };
-
+        let task = self.new_exists_task(key);
         self.task_helper.run_task(task)
     }
 
@@ -185,6 +190,84 @@ impl BlobStorage for BlobStorageLocalDirectory {
         let (sender, receiver) = super::thread_sync::channel::<Event>();
         self.task_helper.senders.push(sender);
         receiver
+    }
+
+    fn upload_blocking(&mut self, data: Bytes, key: Option<&str>) -> UploadResult {
+
+        let mut task = self.new_upload_task(data, key);
+
+        let mut events = Vec::new();
+        task.run(SyncComm { events: &mut events });
+
+        for event in &events {
+            match &event.content {
+                EventContent::UploadSuccess(result) => return Ok(result.clone()),
+                EventContent::Error(err) => return Err(err.clone()),
+                _ => todo!()
+            };
+        }
+
+        panic!("Did not find event");
+    }
+
+    fn download_blocking(&mut self, key: &str) -> DownloadResult {
+
+        let mut task = self.new_download_task(key);
+
+        let mut events = Vec::new();
+        task.run(SyncComm { events: &mut events });
+
+        for event in &events {
+            match &event.content {
+                EventContent::DownloadSuccess(result) => return Ok(result.clone()),
+                EventContent::Error(err) => return Err(err.clone()),
+                _ => todo!()
+            };
+        }
+
+        panic!("Did not find event");
+    }
+
+    fn exists_blocking(&mut self, key: &str) -> ExistsResult {
+
+        let mut task = self.new_exists_task(key);
+
+        let mut events = Vec::new();
+        task.run(SyncComm { events: &mut events });
+
+        for event in &events {
+            match &event.content {
+                EventContent::ExistsSuccess(result) => return Ok(result.clone()),
+                EventContent::Error(err) => return Err(err.clone()),
+                _ => todo!()
+            };
+        }
+
+        panic!("Did not find event");
+    }
+}
+
+impl BlobStorageLocalDirectory {
+    fn new_upload_task(&self, data: Bytes, key: Option<&str>) -> UploadTask {
+        UploadTask {
+            local_dir_path: self.local_dir_path.clone(),
+            key: key.map(String::from),
+            data,
+            encrypt: self.encrypt.clone()
+        }
+    }
+
+    fn new_download_task(&self, key: &str) -> DownloadTask {
+        DownloadTask {
+            blob_path: self.local_dir_path.join(key),
+            encrypt: self.encrypt.clone()
+        }
+    }
+
+    fn new_exists_task(&self, key: &str) -> ExistsTask {
+        ExistsTask {
+            blob_path: self.local_dir_path.join(key),
+        }
     }
 }
 
@@ -194,7 +277,7 @@ struct TaskHelper {
 }
 
 trait Task : Send {
-    fn run(&mut self, comm: Comm);
+    fn run<T: Comm>(&mut self, comm: T);
 }
 
 impl TaskHelper {
@@ -215,7 +298,7 @@ impl TaskHelper {
 
         std::thread::spawn(move || {
             set_thread_panic_hook();
-            task.run(Comm { senders, task_id });
+            task.run(AsyncComm { senders, task_id });
         });
 
         task_id
