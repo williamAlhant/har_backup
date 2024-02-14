@@ -1,9 +1,10 @@
 use std::path::{Path, Component};
 use std::collections::HashMap;
 use anyhow::Context;
-use serde::{Deserialize, Serialize, Serializer};
+use serde::{Deserialize, Serialize, Serializer, Deserializer};
+use std::fmt;
 
-#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Serialize, Deserialize, Hash)]
 pub struct EntryId {
     id: usize
 }
@@ -18,7 +19,7 @@ impl EntryId {
     }
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct Directory {
     name: String,
     entries: HashMap<String, EntryId>
@@ -38,8 +39,35 @@ impl Serialize for BlobKey {
     }
 }
 
-impl std::fmt::Debug for BlobKey {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+struct HashVisitor;
+impl<'de> serde::de::Visitor<'de> for HashVisitor {
+    type Value = blake3::Hash;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+        write!(formatter, "a certain number of bytes")
+    }
+
+    fn visit_bytes<E>(self, v: &[u8]) -> Result<Self::Value, E>
+    where
+        E: serde::de::Error,
+    {
+        let proper_num_bytes: [u8; blake3::OUT_LEN] = v.try_into().map_err(|_| E::custom("could not convert slice to array"))?;
+        Ok(blake3::Hash::from_bytes(proper_num_bytes))
+    }
+}
+
+impl<'de> Deserialize<'de> for BlobKey {
+    fn deserialize<D>(deser: D) -> Result<Self, D::Error>
+        where
+            D: Deserializer<'de>,
+    {
+        let key = deser.deserialize_bytes(HashVisitor)?;
+        Ok(BlobKey { key })
+    }
+}
+
+impl fmt::Debug for BlobKey {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let hash_hex = self.key.to_hex();
         write!(f, "{}", hash_hex.as_str())
     }
@@ -54,13 +82,13 @@ impl Default for BlobKey {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 struct File {
     name: String,
     blob_key: BlobKey
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 enum Entry {
     Directory(Directory),
     File(File)
@@ -87,7 +115,7 @@ impl Entry {
     }
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
 pub struct Manifest {
     root: EntryId,
     entries: Vec<Entry>
@@ -201,6 +229,11 @@ impl Manifest {
         let serialized = rmp_serde::encode::to_vec(&self).context("Serialize manifest into bytes")?;
         Ok(bytes::Bytes::from(serialized))
     }
+
+    pub fn from_bytes(bytes: bytes::Bytes) -> anyhow::Result<Self> {
+        let manifest: Self = rmp_serde::decode::from_slice(&bytes)?;
+        Ok(manifest)
+    }
 }
 
 fn print_entry(manifest: &Manifest, entry: &Entry, indent: usize) {
@@ -218,6 +251,88 @@ fn print_entry(manifest: &Manifest, entry: &Entry, indent: usize) {
 
 pub fn print_tree(manifest: &Manifest) {
     print_entry(manifest, manifest.get_entry(manifest.root), 0);
+}
+
+#[derive(Default)]
+pub struct DiffManifests {
+    // top means non recursive, in other words not total
+    // if not mentioned, it is recursive/total
+    pub top_extra_ids_in_a: Vec<EntryId>,
+    pub extra_files_in_a: usize,
+    pub extra_dirs_in_a: usize,
+    dirs_num_files: HashMap<EntryId, usize>,
+}
+
+impl fmt::Display for DiffManifests {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        writeln!(f, "top_extra_ids_in_a:{:?}", self.top_extra_ids_in_a)?;
+        writeln!(f, "extra_files_in_a:{:?}", self.extra_files_in_a)?;
+        writeln!(f, "extra_dirs_in_a:{:?}", self.extra_dirs_in_a)
+    }
+}
+
+pub fn diff_manifests(manifest_a: &Manifest, manifest_b: &Manifest) -> DiffManifests {
+
+    let mut diff = DiffManifests::default();
+
+    let root_dir_a = manifest_a.get_entry(manifest_a.root).try_directory_ref().unwrap();
+    let root_dir_b = manifest_b.get_entry(manifest_b.root).try_directory_ref().unwrap();
+
+    let mut to_visit_dirs: Vec<(&Directory, &Directory)> = vec![(root_dir_a, root_dir_b)];
+
+    while !to_visit_dirs.is_empty() {
+
+        let (dir_a, dir_b) = to_visit_dirs.pop().unwrap();
+
+        for entry_id_a in dir_a.entries.values().cloned() {
+            let entry_a = manifest_a.get_entry(entry_id_a);
+            match entry_a {
+                Entry::File(file) => {
+                    if !dir_b.entries.contains_key(&file.name) {
+                        diff.extra_files_in_a += 1;
+                        diff.top_extra_ids_in_a.push(entry_id_a);
+                    }
+                },
+                Entry::Directory(subdir_a) => {
+                    if dir_b.entries.contains_key(&subdir_a.name) {
+                        let entry_id_b = dir_b.entries.get(&subdir_a.name).unwrap();
+                        let subdir_b = manifest_b.get_entry(*entry_id_b).try_directory_ref().unwrap(); // todo handle error of mismatch entry type
+                        to_visit_dirs.push((subdir_a, subdir_b));
+                    }
+                    else {
+                        diff.extra_dirs_in_a += 1;
+                        diff.top_extra_ids_in_a.push(entry_id_a);
+                        diff.extra_files_in_a += get_num_files_in_dir_recurs(&mut diff.dirs_num_files, manifest_a, entry_id_a);
+                    }
+                },
+            }
+        }
+    }
+    
+    diff
+}
+
+fn get_num_files_in_dir_recurs(dirs_num_files: &mut HashMap<EntryId, usize>, manifest: &Manifest, entry_id: EntryId) -> usize {
+
+    let entry = manifest.get_entry(entry_id);
+    if let Entry::File(_) = entry {
+        return 1;
+    }
+    
+    let maybe_known_size = dirs_num_files.get(&entry_id);
+    if let Some(&size) = maybe_known_size {
+        return size;
+    }
+
+    let Entry::Directory(dir) = entry else {
+        panic!("What? we already tested if it's a file, it can't be")
+    };
+    
+    let size = dir.entries.iter().map(|(_, &entry)| get_num_files_in_dir_recurs(dirs_num_files, manifest, entry)).sum();
+
+    dirs_num_files.insert(entry_id, size);
+
+    size
 }
 
 #[cfg(test)]
@@ -238,6 +353,14 @@ mod tests {
 
     fn dummy_dir() -> Entry {
         Entry::Directory(Directory {name: "imadir".to_string(), entries: HashMap::new()})
+    }
+
+    fn dummy_manifest() -> Manifest {
+        let mut manifest = Manifest::new();
+        let file_entry = dummy_file();
+        manifest.add(file_entry.clone(), manifest.root).expect("Add entry");
+        manifest.join_and_get_entry_id(manifest.root, Path::new("imafile")).expect("join and get entry id");
+        manifest
     }
 
     #[test]
@@ -265,5 +388,16 @@ mod tests {
         assert_eq!(manifest.entries.len(), 3);
 
         print_tree(&manifest);
+    }
+
+    #[test]
+    fn seialize_deserialize() -> anyhow::Result<()> {
+        let manifest = dummy_manifest();
+        let bytes = manifest.to_bytes().context("serializing")?;
+        let manifest_b = Manifest::from_bytes(bytes).context("deserializing")?;
+
+        assert_eq!(manifest.get_stats().num_files, manifest_b.get_stats().num_files);
+
+        Ok(())
     }
 }

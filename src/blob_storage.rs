@@ -65,7 +65,10 @@ impl std::fmt::Debug for EventContent {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             EventContent::DownloadSuccess(_) => write!(f, "DownloadSuccess(...)"),
-            x => write!(f, "{:?}", x),
+            EventContent::UploadSuccess(a) => write!(f, "UploadSuccess({:?})", a),
+            EventContent::Error(a) => write!(f, "Error({:?})", a),
+            EventContent::Progress(a) => write!(f, "Progress({:?})", a),
+            EventContent::ExistsSuccess(a) => write!(f, "ExistsSuccess({:?})", a),
         }
     }
 }
@@ -89,4 +92,15 @@ pub(crate) fn get_hash_name(bucket_name: &str, data: Bytes) -> String {
     let hash = hasher.finalize();
     let hash_hex = hash.to_hex();
     hash_hex.to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::EventContent;
+
+    #[test]
+    fn print_debug_event_content() {
+        let event = EventContent::ExistsSuccess(false);
+        println!("{:?}", event);
+    }
 }
