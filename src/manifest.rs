@@ -1,4 +1,4 @@
-use std::path::{Path, Component};
+use std::path::{Path, PathBuf, Component};
 use std::collections::HashMap;
 use anyhow::Context;
 use serde::{Deserialize, Serialize, Serializer, Deserializer};
@@ -234,6 +234,41 @@ impl Manifest {
         let manifest: Self = rmp_serde::decode::from_slice(&bytes)?;
         Ok(manifest)
     }
+
+    // map each entry to its parent
+    fn get_map_parent(&self) -> HashMap<EntryId, EntryId> {
+
+        let mut map = HashMap::new();
+        let mut dirs_to_visit = vec![self.root];
+
+        while !dirs_to_visit.is_empty() {
+            let dir_entry_id = dirs_to_visit.pop().unwrap();
+            let dir = self.get_entry(dir_entry_id).try_directory_ref().unwrap();
+
+            for sub_entry_id in dir.entries.values().cloned() {
+                let sub_entry = self.get_entry(sub_entry_id);
+                map.insert(sub_entry_id, dir_entry_id);
+                match sub_entry {
+                    Entry::File(_) => {},
+                    Entry::Directory(_) => {
+                        dirs_to_visit.push(sub_entry_id)
+                    }
+                }
+            }
+        }
+
+        map
+    }
+
+    fn get_full_path(&self, entry_id: EntryId, map_parent: &HashMap<EntryId, EntryId>) -> PathBuf {
+        let mut components = vec![self.get_entry(entry_id).name()];
+        let mut parent_id = map_parent.get(&entry_id).unwrap();
+        while parent_id != &self.root {
+            components.push(self.get_entry(*parent_id).name());
+            parent_id = map_parent.get(parent_id).unwrap();
+        }
+        PathBuf::from_iter(components.iter().rev())
+    }
 }
 
 fn print_entry(manifest: &Manifest, entry: &Entry, indent: usize) {
@@ -258,6 +293,7 @@ pub struct DiffManifests {
     // top means non recursive, in other words not total
     // if not mentioned, it is recursive/total
     pub top_extra_ids_in_a: Vec<EntryId>,
+    pub paths_of_top_extra_in_a: Vec<PathBuf>,
     pub extra_files_in_a: usize,
     pub extra_dirs_in_a: usize,
     dirs_num_files: HashMap<EntryId, usize>,
@@ -266,6 +302,7 @@ pub struct DiffManifests {
 impl fmt::Display for DiffManifests {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         writeln!(f, "top_extra_ids_in_a:{:?}", self.top_extra_ids_in_a)?;
+        writeln!(f, "paths_of_top_extra_in_a:{:?}", self.paths_of_top_extra_in_a)?;
         writeln!(f, "extra_files_in_a:{:?}", self.extra_files_in_a)?;
         writeln!(f, "extra_dirs_in_a:{:?}", self.extra_dirs_in_a)
     }
@@ -307,6 +344,12 @@ pub fn diff_manifests(manifest_a: &Manifest, manifest_b: &Manifest) -> DiffManif
                 },
             }
         }
+    }
+
+    let map_parent = manifest_a.get_map_parent();
+    for &entry_id in &diff.top_extra_ids_in_a {
+        let full_path = manifest_a.get_full_path(entry_id, &map_parent);
+        diff.paths_of_top_extra_in_a.push(full_path);
     }
     
     diff
