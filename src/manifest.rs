@@ -115,7 +115,7 @@ impl Entry {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct Manifest {
     root: EntryId,
     entries: Vec<Entry>
@@ -394,8 +394,16 @@ mod tests {
         Entry::File(File {name: "imafile".to_string(), blob_key: dummy_blob_key()})
     }
 
+    fn dummy_file_with_name(name: &str) -> Entry {
+        Entry::File(File {name: name.to_string(), blob_key: BlobKey::default()})
+    }
+
     fn dummy_dir() -> Entry {
         Entry::Directory(Directory {name: "imadir".to_string(), entries: HashMap::new()})
+    }
+
+    fn dummy_dir_with_name(name: &str) -> Entry {
+        Entry::Directory(Directory {name: name.to_string(), entries: HashMap::new()})
     }
 
     fn dummy_manifest() -> Manifest {
@@ -441,6 +449,77 @@ mod tests {
 
         assert_eq!(manifest.get_stats().num_files, manifest_b.get_stats().num_files);
 
+        Ok(())
+    }
+
+    struct ManifestBuilder {
+        manifest: Manifest,
+        cwd: EntryId,
+        previous_cwd: EntryId
+    }
+
+    impl ManifestBuilder {
+        fn new(manifest: Manifest) -> Self {
+            let cwd = manifest.root;
+            ManifestBuilder {
+                manifest,
+                cwd,
+                previous_cwd: EntryId::from_usize(0),
+            }
+        }
+        fn get_manifest(self) -> Manifest {
+            self.manifest
+        }
+        fn file(mut self, name: &str) -> Self {
+            self.manifest.add(dummy_file_with_name(name), self.cwd).unwrap();
+            self
+        }
+        fn start_dir(mut self, name: &str) -> Self {
+            self.previous_cwd = self.cwd;
+            self.cwd = self.manifest.add(dummy_dir_with_name(name), self.cwd).unwrap();
+            self
+        }
+        fn cd_dir(mut self, name: &str) -> Self {
+            self.previous_cwd = self.cwd;
+            let dir = self.manifest.get_entry(self.previous_cwd).try_directory_ref().unwrap();
+            self.cwd = *dir.entries.get(name).unwrap();
+            self
+        }
+        fn end_dir(mut self) -> Self {
+            self.cwd = self.previous_cwd;
+            self
+        }
+    }
+
+    #[test]
+    fn diff_0() -> anyhow::Result<()> {
+
+        let manifest = ManifestBuilder::new(Manifest::new())
+            .file("felt")
+            .start_dir("dango")
+                .file("fetch")
+            .end_dir()
+            .start_dir("dog")
+                .file("fault")
+                .start_dir("deal")
+                .end_dir()
+            .end_dir()
+            .get_manifest();
+
+        let other = ManifestBuilder::new(manifest.clone())
+            .cd_dir("dango")
+                .file("voice")
+            .end_dir()
+            .get_manifest();
+
+        let diff = diff_manifests(&other, &manifest);
+
+        print!("{}", diff);
+        assert_eq!(diff.extra_dirs_in_a, 0);
+        assert_eq!(diff.extra_files_in_a, 1);
+        assert_eq!(diff.top_extra_ids_in_a.len(), 1);
+        assert_eq!(diff.paths_of_top_extra_in_a, vec![PathBuf::from("dango/voice")]);
+        
         Ok(())
     }
 }
