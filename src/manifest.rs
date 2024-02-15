@@ -296,7 +296,7 @@ pub struct DiffManifests {
     pub paths_of_top_extra_in_a: Vec<PathBuf>,
     pub extra_files_in_a: usize,
     pub extra_dirs_in_a: usize,
-    dirs_num_files: HashMap<EntryId, usize>,
+    dirs_num_files_dirs: HashMap<EntryId, (usize, usize)>, // recursive number of (files, dirs) in a dir
 }
 
 impl fmt::Display for DiffManifests {
@@ -339,7 +339,9 @@ pub fn diff_manifests(manifest_a: &Manifest, manifest_b: &Manifest) -> DiffManif
                     else {
                         diff.extra_dirs_in_a += 1;
                         diff.top_extra_ids_in_a.push(entry_id_a);
-                        diff.extra_files_in_a += get_num_files_in_dir_recurs(&mut diff.dirs_num_files, manifest_a, entry_id_a);
+                        let num_children = get_num_child_in_dir_recurs(&mut diff.dirs_num_files_dirs, manifest_a, entry_id_a);
+                        diff.extra_files_in_a += num_children.0;
+                        diff.extra_dirs_in_a += num_children.1;
                     }
                 },
             }
@@ -355,14 +357,18 @@ pub fn diff_manifests(manifest_a: &Manifest, manifest_b: &Manifest) -> DiffManif
     diff
 }
 
-fn get_num_files_in_dir_recurs(dirs_num_files: &mut HashMap<EntryId, usize>, manifest: &Manifest, entry_id: EntryId) -> usize {
+fn add_tuples(t0: (usize, usize), t1: (usize, usize)) -> (usize, usize) {
+    (t0.0 + t1.0, t0.1 + t1.1)
+}
+
+fn get_num_child_in_dir_recurs(dirs_num_child: &mut HashMap<EntryId, (usize, usize)>, manifest: &Manifest, entry_id: EntryId) -> (usize, usize) {
 
     let entry = manifest.get_entry(entry_id);
     if let Entry::File(_) = entry {
-        return 1;
+        return (1, 0);
     }
     
-    let maybe_known_size = dirs_num_files.get(&entry_id);
+    let maybe_known_size = dirs_num_child.get(&entry_id);
     if let Some(&size) = maybe_known_size {
         return size;
     }
@@ -371,9 +377,17 @@ fn get_num_files_in_dir_recurs(dirs_num_files: &mut HashMap<EntryId, usize>, man
         panic!("What? we already tested if it's a file, it can't be")
     };
     
-    let size = dir.entries.iter().map(|(_, &entry)| get_num_files_in_dir_recurs(dirs_num_files, manifest, entry)).sum();
+    let mut size = (0, 0);
+    for (_, &entry_id) in &dir.entries {
+        let entry = manifest.get_entry(entry_id);
+        let sub_size = match entry {
+            Entry::File(_) => (1, 0),
+            Entry::Directory(_) => add_tuples(get_num_child_in_dir_recurs(dirs_num_child, manifest, entry_id), (0, 1)),
+        };
+        size = add_tuples(size, sub_size);
+    }
 
-    dirs_num_files.insert(entry_id, size);
+    dirs_num_child.insert(entry_id, size);
 
     size
 }
@@ -519,7 +533,43 @@ mod tests {
         assert_eq!(diff.extra_files_in_a, 1);
         assert_eq!(diff.top_extra_ids_in_a.len(), 1);
         assert_eq!(diff.paths_of_top_extra_in_a, vec![PathBuf::from("dango/voice")]);
-        
+
+        Ok(())
+    }
+
+    #[test]
+    fn diff_1() -> anyhow::Result<()> {
+
+        let manifest = ManifestBuilder::new(Manifest::new())
+            .file("felt")
+            .start_dir("dango")
+                .file("fetch")
+            .end_dir()
+            .start_dir("dog")
+                .file("fault")
+                .start_dir("deal")
+                .end_dir()
+            .end_dir()
+            .get_manifest();
+
+        let other = ManifestBuilder::new(manifest.clone())
+            .cd_dir("dango")
+                .start_dir("cab")
+                    .start_dir("choco")
+                        .file("vault")
+                    .end_dir()
+                .end_dir()
+            .end_dir()
+            .get_manifest();
+
+        let diff = diff_manifests(&other, &manifest);
+
+        print!("{}", diff);
+        assert_eq!(diff.extra_dirs_in_a, 2);
+        assert_eq!(diff.extra_files_in_a, 1);
+        assert_eq!(diff.top_extra_ids_in_a.len(), 1);
+        assert_eq!(diff.paths_of_top_extra_in_a, vec![PathBuf::from("dango/cab")]);
+
         Ok(())
     }
 }
