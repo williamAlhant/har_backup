@@ -1,15 +1,47 @@
-use har_backup::{blob_storage_local_directory::BlobStorageLocalDirectory, mirror::Mirror};
-use std::path::Path;
+use clap::{Parser, Args, Subcommand};
+use anyhow::{Result, Context};
+use std::path::{Path, PathBuf};
 
-fn main() -> anyhow::Result<()> {
+#[derive(Parser)]
+struct Cli {
+    #[command(subcommand)]
+    command: Command,
+}
+
+#[derive(Subcommand)]
+enum Command {
+    CreateKey(CreateKey)
+}
+
+#[derive(Args, Debug)]
+struct CreateKey {
+    path: PathBuf,
+}
+
+fn main() -> Result<()> {
     env_logger::init();
-    println!("Hello, world!");
+    let cli = Cli::parse();
+    match cli.command {
+        Command::CreateKey(sub_cli) => {
+            return create_key(&sub_cli.path);
+        }
+    }
+    Ok(())
+}
 
-    let blob_storage = BlobStorageLocalDirectory::new(Path::new("local_storage"), Path::new("test_files/keyfile"))?;
-    let mut mirror = Mirror::new(Box::new(blob_storage));
-    // mirror.init()?;
+fn write_file_without_overwrite(path: &Path, content: &[u8]) -> Result<()> {
+    if path.exists() {
+        anyhow::bail!("{} already exists", path.to_str().unwrap());
+    }
+    std::fs::write(path, content)?;
+    Ok(())
+}
 
-    mirror.diff_with_local(Path::new("test_files/partial_h_archive"))?;
-
+fn create_key(path: &Path) -> Result<()> {
+    let path_str = path.to_str().context("Convert path to str")?;
+    println!("Creating key");
+    let key = har_backup::blob_encryption::create_key();
+    write_file_without_overwrite(path, key.as_slice()).context("Writing key to file")?;
+    println!("key stored at {}", path_str);
     Ok(())
 }

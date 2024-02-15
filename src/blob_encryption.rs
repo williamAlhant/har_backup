@@ -60,6 +60,12 @@ impl EncryptWithChacha {
     }
 }
 
+const CHACHA_KEY_SIZE: usize = <ChaCha20Poly1305 as KeySizeUser>::KeySize::USIZE;
+pub fn create_key() -> [u8; CHACHA_KEY_SIZE] {
+    let key = ChaCha20Poly1305::generate_key(OsRng);
+    key.into()
+}
+
 #[cfg(test)]
 mod tests {
     use std::io::Write;
