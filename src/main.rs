@@ -1,5 +1,6 @@
 use clap::{Parser, Args, Subcommand};
 use anyhow::{Result, Context};
+use har_backup::manifest::{self, Manifest};
 use har_backup::{blob_storage_local_directory::BlobStorageLocalDirectory, mirror::Mirror};
 use har_backup::blob_storage::BlobStorage;
 use std::path::{Path, PathBuf};
@@ -29,6 +30,11 @@ enum Command {
         after_help="It stores the manifest in .har",
     )]
     FetchManifest,
+    #[command(
+        about="Compare local tree with fetched manifest",
+        after_help="Do not forget to fetch before.",
+    )]
+    Diff,
 }
 
 #[derive(Args, Debug)]
@@ -43,6 +49,7 @@ fn main() -> Result<()> {
         Command::CreateKey(sub_cli) => create_key(&sub_cli.path),
         Command::InitLocal => init_local(),
         Command::FetchManifest => WithRemoteAndLocal::new()?.fetch_manifest(),
+        Command::Diff => WithLocal::new()?.diff(),
         _ => todo!()
     }
 }
@@ -64,45 +71,70 @@ fn create_key(path: &Path) -> Result<()> {
     Ok(())
 }
 
+struct WithLocal {
+    local_meta: dot_har::DotHar,
+}
+
+impl WithLocal {
+    fn new() -> Result<Self> {
+        let local_meta = dot_har::DotHar::find_cwd_or_ancestor()?;
+        let me = Self {
+            local_meta,
+        };
+        Ok(me)
+    }
+
+    fn diff(&self) -> Result<()> {
+        let local_manifest = Manifest::from_fs(self.local_meta.get_archive_root()).context("Making manifest from local tree")?;
+        let remote_manifest = self.local_meta.get_manifest().context("Reading fetched manifest")?;
+        let diff = manifest::diff_manifests(&local_manifest, &remote_manifest);
+        println!("Local tree has the additional entries:");
+        for entry_path in &diff.paths_of_top_extra_in_a {
+            println!("{}", entry_path.to_str().unwrap());
+        }
+        println!("Total extra files: {}, total extra dirs: {}", diff.extra_files_in_a, diff.extra_dirs_in_a);
+        Ok(())
+    }
+}
+
 struct WithRemoteAndLocal {
     local_meta: dot_har::DotHar,
-    remote: Option<Mirror>,
+    remote: Mirror,
 }
 
 impl WithRemoteAndLocal {
     fn new() -> Result<Self> {
         let local_meta = dot_har::DotHar::find_cwd_or_ancestor()?;
-        let mut me = Self {
+        let remote = Self::init_mirror(&local_meta)?;
+        let me = Self {
             local_meta,
-            remote: None
+            remote
         };
-        me.remote = Some(me.init_mirror()?);
         Ok(me)
     }
 
     fn fetch_manifest(&mut self) -> Result<()> {
-        let remote = self.remote.as_mut().unwrap();
-        let manifest_blob = remote.get_manifest_blob()?;
+        let manifest_blob = self.remote.get_manifest_blob()?;
         self.local_meta.store_manifest(manifest_blob)?;
         println!("Fetched manifest.");
         Ok(())
     }
 
-    fn init_mirror(&self) -> Result<Mirror> {
-        let blob_storage = self.init_blob_storage()?;
+    fn init_mirror(local_meta: &dot_har::DotHar) -> Result<Mirror> {
+        let blob_storage = Self::init_blob_storage(local_meta)?;
         let mirror = Mirror::new(blob_storage);
         Ok(mirror)
     }
 
-    fn init_blob_storage(&self) -> Result<Box<dyn BlobStorage>> {
+    fn init_blob_storage(local_meta: &dot_har::DotHar) -> Result<Box<dyn BlobStorage>> {
 
-        let keypath = self.local_meta.get_key_file()?;
+        let keypath = local_meta.get_key_file()?;
 
         if !keypath.exists() {
             anyhow::bail!("Keyfile {} (as specified by .har) not found", keypath.to_str().unwrap());
         }
 
-        let remote_spec = self.local_meta.get_remote_spec()?;
+        let remote_spec = local_meta.get_remote_spec()?;
         let (scheme, path) = remote_spec.split_once("://").context("Remote spec (as specified by .har) does not have format A://B")?;
         debug!("Remote scheme/path {} {}", scheme, path);
 
@@ -121,6 +153,7 @@ mod dot_har {
     use std::path::{Path, PathBuf};
     use super::DOT_HAR_NAME;
     use anyhow::{Result, Context, anyhow};
+    use har_backup::manifest::Manifest;
 
     const KEYPATH_FILE: &str = "keypath";
     const REMOTE_FILE: &str = "remote";
@@ -140,6 +173,16 @@ mod dot_har {
                 }
             }
             anyhow::bail!("Did not find {} in cwd or any ancestor dir", DOT_HAR_NAME)
+        }
+
+        pub fn get_archive_root(&self) -> &Path {
+            self.path.parent().unwrap()
+        }
+
+        pub fn get_manifest(&self) -> Result<Manifest> {
+            let file_content = self.read_file(FETCHED_MANIFEST)?;
+            let manifest = Manifest::from_bytes(bytes::Bytes::from(file_content))?;
+            Ok(manifest)
         }
 
         pub fn get_key_file(&self) -> Result<PathBuf> {
