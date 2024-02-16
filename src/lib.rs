@@ -4,3 +4,4 @@ pub mod blob_encryption;
 pub mod manifest;
 pub mod thread_sync;
 pub mod mirror;
+pub mod dot_har;

@@ -3,6 +3,7 @@ use anyhow::{Result, Context};
 use har_backup::manifest::{self, Manifest};
 use har_backup::{blob_storage_local_directory::BlobStorageLocalDirectory, mirror::Mirror};
 use har_backup::blob_storage::BlobStorage;
+use har_backup::dot_har::DotHar;
 use std::path::{Path, PathBuf};
 use log::debug;
 
@@ -72,12 +73,12 @@ fn create_key(path: &Path) -> Result<()> {
 }
 
 struct WithLocal {
-    local_meta: dot_har::DotHar,
+    local_meta: DotHar,
 }
 
 impl WithLocal {
     fn new() -> Result<Self> {
-        let local_meta = dot_har::DotHar::find_cwd_or_ancestor()?;
+        let local_meta = DotHar::find_cwd_or_ancestor()?;
         let me = Self {
             local_meta,
         };
@@ -98,13 +99,13 @@ impl WithLocal {
 }
 
 struct WithRemoteAndLocal {
-    local_meta: dot_har::DotHar,
+    local_meta: DotHar,
     remote: Mirror,
 }
 
 impl WithRemoteAndLocal {
     fn new() -> Result<Self> {
-        let local_meta = dot_har::DotHar::find_cwd_or_ancestor()?;
+        let local_meta = DotHar::find_cwd_or_ancestor()?;
         let remote = Self::init_mirror(&local_meta)?;
         let me = Self {
             local_meta,
@@ -120,13 +121,13 @@ impl WithRemoteAndLocal {
         Ok(())
     }
 
-    fn init_mirror(local_meta: &dot_har::DotHar) -> Result<Mirror> {
+    fn init_mirror(local_meta: &DotHar) -> Result<Mirror> {
         let blob_storage = Self::init_blob_storage(local_meta)?;
         let mirror = Mirror::new(blob_storage);
         Ok(mirror)
     }
 
-    fn init_blob_storage(local_meta: &dot_har::DotHar) -> Result<Box<dyn BlobStorage>> {
+    fn init_blob_storage(local_meta: &DotHar) -> Result<Box<dyn BlobStorage>> {
 
         let keypath = local_meta.get_key_file()?;
 
@@ -148,69 +149,8 @@ impl WithRemoteAndLocal {
     }
 }
 
-const DOT_HAR_NAME: &str = ".har";
-mod dot_har {
-    use std::path::{Path, PathBuf};
-    use super::DOT_HAR_NAME;
-    use anyhow::{Result, Context, anyhow};
-    use har_backup::manifest::Manifest;
-
-    const KEYPATH_FILE: &str = "keypath";
-    const REMOTE_FILE: &str = "remote";
-    const FETCHED_MANIFEST: &str = "fetched_manifest";
-
-    pub struct DotHar {
-        path: PathBuf
-    }
-
-    impl DotHar {
-        pub fn find_cwd_or_ancestor() -> Result<Self> {
-            let cwd = std::env::current_dir()?;
-            for dir in cwd.ancestors() {
-                let maybe_exists = dir.join(DOT_HAR_NAME);
-                if maybe_exists.exists() {
-                    return Ok(Self{path: maybe_exists});
-                }
-            }
-            anyhow::bail!("Did not find {} in cwd or any ancestor dir", DOT_HAR_NAME)
-        }
-
-        pub fn get_archive_root(&self) -> &Path {
-            self.path.parent().unwrap()
-        }
-
-        pub fn get_manifest(&self) -> Result<Manifest> {
-            let file_content = self.read_file(FETCHED_MANIFEST)?;
-            let manifest = Manifest::from_bytes(bytes::Bytes::from(file_content))?;
-            Ok(manifest)
-        }
-
-        pub fn get_key_file(&self) -> Result<PathBuf> {
-            let file_content = self.read_file(KEYPATH_FILE)?;
-            let keypath_str = String::from_utf8(file_content)?;
-            Ok(PathBuf::from(&keypath_str))
-        }
-
-        pub fn get_remote_spec(&self) -> Result<String> {
-            let file_content = self.read_file(REMOTE_FILE)?;
-            let remote_spec = String::from_utf8(file_content)?;
-            Ok(remote_spec)
-        }
-
-        fn read_file(&self, name: &str) -> Result<Vec<u8>> {
-            let file = self.path.join(name);
-            let file_content = std::fs::read(&file).with_context(|| anyhow!("Read {}", file.to_str().unwrap()))?;
-            Ok(file_content)
-        }
-
-        pub fn store_manifest(&self, manifest_blob: bytes::Bytes) -> Result<()> {
-            std::fs::write(self.path.join(FETCHED_MANIFEST), &manifest_blob).context("Storing fetched manifest")?;
-            Ok(())
-        }
-    }
-}
-
 fn init_local() -> Result<()> {
+    use har_backup::dot_har::DOT_HAR_NAME;
     if Path::new(DOT_HAR_NAME).exists() {
         anyhow::bail!("It looks like this has been initialized already!")
     }
