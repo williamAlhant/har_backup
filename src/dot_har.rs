@@ -8,6 +8,7 @@ const KEYPATH_FILE: &str = "keypath";
 const REMOTE_FILE: &str = "remote";
 const FETCHED_MANIFEST: &str = "fetched_manifest";
 
+#[derive(Clone)]
 pub struct DotHar {
     path: PathBuf
 }

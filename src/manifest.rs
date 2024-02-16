@@ -278,6 +278,35 @@ impl Manifest {
         }
         PathBuf::from_iter(components.iter().rev())
     }
+
+    // allows to use get_full_path above, without the user having to build/pass map_parent
+    // the lifetime/borrow check should also prevent manifest from changing without map_parent changing
+    pub fn get_full_path_getter<'a>(&'a self) -> impl Fn(EntryId) -> PathBuf + 'a {
+        let map_parent = self.get_map_parent();
+        move |entry_id: EntryId| -> PathBuf {
+            self.get_full_path(entry_id, &map_parent)
+        }
+    }
+
+    pub fn get_child_files_recurs(&self, entry_id: EntryId) -> Vec<EntryId> {
+        let entry = self.get_entry(entry_id);
+        if let Entry::File(_) = entry {
+            return vec![entry_id];
+        }
+
+        let mut to_visit: Vec<EntryId> = entry.try_directory_ref().unwrap().entries.values().cloned().collect();
+        let mut child_files = Vec::new();
+
+        while let Some(entry_id) = to_visit.pop() {
+            let entry = self.get_entry(entry_id);
+            match entry {
+                Entry::File(_) => child_files.push(entry_id),
+                Entry::Directory(dir) => to_visit.extend(dir.entries.values().clone()),
+            }
+        }
+
+        child_files
+    }
 }
 
 fn print_entry(manifest: &Manifest, entry: &Entry, indent: usize) {
@@ -323,7 +352,7 @@ pub fn diff_manifests(manifest_a: &Manifest, manifest_b: &Manifest) -> DiffManif
 
     let root_dir_a = manifest_a.get_entry(manifest_a.root).try_directory_ref().unwrap();
     let root_dir_b = manifest_b.get_entry(manifest_b.root).try_directory_ref().unwrap();
-    let map_parent = manifest_a.get_map_parent();
+    let path_getter = manifest_a.get_full_path_getter();
 
     let mut to_visit_dirs: Vec<(&Directory, &Directory)> = vec![(root_dir_a, root_dir_b)];
 
@@ -332,7 +361,7 @@ pub fn diff_manifests(manifest_a: &Manifest, manifest_b: &Manifest) -> DiffManif
         for entry_id_a in dir_a.entries.values().cloned() {
 
             // exclude stuff
-            let full_path = manifest_a.get_full_path(entry_id_a, &map_parent);
+            let full_path = path_getter(entry_id_a);
             if full_path == Path::new(".har") {
                 continue;
             }
@@ -364,7 +393,7 @@ pub fn diff_manifests(manifest_a: &Manifest, manifest_b: &Manifest) -> DiffManif
     }
 
     for &entry_id in &diff.top_extra_ids_in_a {
-        let full_path = manifest_a.get_full_path(entry_id, &map_parent);
+        let full_path = path_getter(entry_id);
         diff.paths_of_top_extra_in_a.push(full_path);
     }
     
@@ -583,6 +612,35 @@ mod tests {
         assert_eq!(diff.extra_files_in_a, 1);
         assert_eq!(diff.top_extra_ids_in_a.len(), 1);
         assert_eq!(diff.paths_of_top_extra_in_a, vec![PathBuf::from("dango/cab")]);
+
+        Ok(())
+    }
+
+    #[test]
+    fn get_child_recurs() -> anyhow::Result<()> {
+        let manifest = ManifestBuilder::new(Manifest::new())
+            .file("felt")
+            .start_dir("dango")
+                .file("fetch")
+            .end_dir()
+            .start_dir("dog")
+                .file("fault")
+                .start_dir("deal")
+                .end_dir()
+            .end_dir()
+            .get_manifest();
+
+        let dango = manifest.join_and_get_entry_id(manifest.root, Path::new("dango"))?;
+        let fetch = manifest.join_and_get_entry_id(dango, Path::new("fetch"))?;
+        assert_eq!(manifest.get_child_files_recurs(dango), vec![fetch]);
+        assert_eq!(manifest.get_child_files_recurs(fetch), vec![fetch]);
+
+        let felt = manifest.join_and_get_entry_id(manifest.root, Path::new("felt"))?;
+        let fault = manifest.join_and_get_entry_id(manifest.root, Path::new("dog/fault"))?;
+        let child_recurs = manifest.get_child_files_recurs(manifest.root);
+        assert!(child_recurs.contains(&felt));
+        assert!(child_recurs.contains(&fault));
+        assert!(child_recurs.contains(&fetch));
 
         Ok(())
     }

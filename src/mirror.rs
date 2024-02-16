@@ -1,5 +1,5 @@
-use super::blob_storage::BlobStorage;
-use super::manifest::Manifest;
+use crate::blob_storage::BlobStorage;
+use crate::manifest::Manifest;
 use log::debug;
 use anyhow::Result;
 

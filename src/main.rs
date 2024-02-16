@@ -36,6 +36,12 @@ enum Command {
         after_help="Do not forget to fetch before.",
     )]
     Diff,
+    #[command(
+        about="Push changes from local to remote",
+        after_help="It diffs local tree with fetched remote manifest.\n\
+                    It uploads new files, directories and uploads the updated manifest.",
+    )]
+    Push
 }
 
 #[derive(Args, Debug)]
@@ -51,6 +57,7 @@ fn main() -> Result<()> {
         Command::InitLocal => init_local(),
         Command::FetchManifest => WithRemoteAndLocal::new()?.fetch_manifest(),
         Command::Diff => WithLocal::new()?.diff(),
+        Command::Push => WithRemoteAndLocal::new()?.push(),
     }
 }
 
@@ -145,6 +152,22 @@ impl WithRemoteAndLocal {
         else {
             todo!();
         }
+    }
+
+    fn push(&self) -> Result<()> {
+        let local_manifest = Manifest::from_fs(self.local_meta.get_archive_root()).context("Making manifest from local tree")?;
+        let remote_manifest = self.local_meta.get_manifest().context("Reading fetched manifest")?;
+        let diff = manifest::diff_manifests(&local_manifest, &remote_manifest);
+
+        let toto = diff.top_extra_ids_in_a[0];
+        let toto_files = local_manifest.get_child_files_recurs(toto);
+        let path_getter = local_manifest.get_full_path_getter();
+        let toto_paths: Vec<PathBuf> = toto_files.iter().map(|&id| path_getter(id)).collect();
+        dbg!(toto_paths);
+
+        todo!();
+
+        Ok(())
     }
 }
 
