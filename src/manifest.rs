@@ -314,6 +314,7 @@ pub fn diff_manifests(manifest_a: &Manifest, manifest_b: &Manifest) -> DiffManif
 
     let root_dir_a = manifest_a.get_entry(manifest_a.root).try_directory_ref().unwrap();
     let root_dir_b = manifest_b.get_entry(manifest_b.root).try_directory_ref().unwrap();
+    let map_parent = manifest_a.get_map_parent();
 
     let mut to_visit_dirs: Vec<(&Directory, &Directory)> = vec![(root_dir_a, root_dir_b)];
 
@@ -322,6 +323,13 @@ pub fn diff_manifests(manifest_a: &Manifest, manifest_b: &Manifest) -> DiffManif
         let (dir_a, dir_b) = to_visit_dirs.pop().unwrap();
 
         for entry_id_a in dir_a.entries.values().cloned() {
+
+            // exclude stuff
+            let full_path = manifest_a.get_full_path(entry_id_a, &map_parent);
+            if full_path == Path::new(".har") {
+                continue;
+            }
+
             let entry_a = manifest_a.get_entry(entry_id_a);
             match entry_a {
                 Entry::File(file) => {
@@ -348,7 +356,6 @@ pub fn diff_manifests(manifest_a: &Manifest, manifest_b: &Manifest) -> DiffManif
         }
     }
 
-    let map_parent = manifest_a.get_map_parent();
     for &entry_id in &diff.top_extra_ids_in_a {
         let full_path = manifest_a.get_full_path(entry_id, &map_parent);
         diff.paths_of_top_extra_in_a.push(full_path);
