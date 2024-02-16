@@ -1,9 +1,15 @@
 use super::thread_sync::Receiver;
 use bytes::Bytes;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct TaskId {
     id: u64
+}
+
+impl std::fmt::Debug for TaskId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        write!(f, "TaskId:{}", self.id)
+    }
 }
 
 impl TaskId {

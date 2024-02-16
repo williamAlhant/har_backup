@@ -1,6 +1,7 @@
 use clap::{Parser, Args, Subcommand};
 use anyhow::{Result, Context};
 use har_backup::manifest::{self, Manifest};
+use har_backup::mirror::PushConfig;
 use har_backup::{blob_storage_local_directory::BlobStorageLocalDirectory, mirror::Mirror};
 use har_backup::blob_storage::BlobStorage;
 use har_backup::dot_har::DotHar;
@@ -154,16 +155,24 @@ impl WithRemoteAndLocal {
         }
     }
 
-    fn push(&self) -> Result<()> {
+    fn push(&mut self) -> Result<()> {
         let local_manifest = Manifest::from_fs(self.local_meta.get_archive_root()).context("Making manifest from local tree")?;
         let remote_manifest = self.local_meta.get_manifest().context("Reading fetched manifest")?;
         let diff = manifest::diff_manifests(&local_manifest, &remote_manifest);
 
-        let toto = diff.top_extra_ids_in_a[0];
-        let toto_files = local_manifest.get_child_files_recurs(toto);
         let path_getter = local_manifest.get_full_path_getter();
-        let toto_paths: Vec<PathBuf> = toto_files.iter().map(|&id| path_getter(id)).collect();
-        dbg!(toto_paths);
+
+        let mut files_to_push = Vec::new();
+        for top_extra_entry in diff.top_extra_ids_in_a {
+            let extra_files = local_manifest.get_child_files_recurs(top_extra_entry);
+            files_to_push.extend(extra_files);
+        }
+        let paths: Vec<PathBuf> = files_to_push.iter().map(|&id| path_getter(id)).collect();
+        let prefix_path = self.local_meta.get_archive_root();
+
+        println!("Starting to push {} files...", files_to_push.len());
+        let results = self.remote.push(&paths, prefix_path, PushConfig::default())?;
+        println!("Push done. Next is to update the remote manifest.");
 
         todo!();
 
