@@ -13,7 +13,10 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    #[command(about="Create a private key")]
+    #[command(
+        about="Create an encryption key",
+        after_help="The key is used to encrypt/decrypt blobs. It is up to you to store it safely.",
+    )]
     CreateKey(CreateKey),
     #[command(
         about="Initialize the local archive directory",
