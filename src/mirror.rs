@@ -2,6 +2,7 @@ use super::blob_storage::BlobStorage;
 use super::manifest::{Manifest, diff_manifests};
 use std::path::Path;
 use log::debug;
+use anyhow::Result;
 
 pub struct Mirror {
     blob_storage: Box<dyn BlobStorage>
@@ -30,17 +31,10 @@ impl Mirror {
         Ok(())
     }
 
-    // todo make private
-    pub fn diff_with_local(&mut self, local_dir: &Path) -> anyhow::Result<()> {
-        debug!("Get manifest from local fs...");
-        let local_manifest = Manifest::from_fs(local_dir)?;
-        debug!("Get manifest from local fs done");
+    pub fn get_manifest_blob(&mut self) -> Result<bytes::Bytes> {
         debug!("Download remote manifest...");
         let remote_manifest_bytes = self.blob_storage.download_blocking(MANIFEST_KEY)?;
         debug!("Download remote manifest done");
-        let remote_manifest = Manifest::from_bytes(remote_manifest_bytes)?;
-        let diff = diff_manifests(&local_manifest, &remote_manifest);
-        debug!("{}", diff);
-        Ok(())
+        Ok(remote_manifest_bytes)
     }
 }

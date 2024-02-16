@@ -23,3 +23,7 @@ tempfile = "3.10.0"
 [[bin]]
 name = "har_test"
 path = "src/har_test.rs"
+
+[[bin]]
+name = "har"
+path = "src/main.rs"
