@@ -54,7 +54,7 @@ fn make_directory_with_stuff() -> tempfile::TempDir {
     let mut file = std::fs::File::create(tempdir.path().join("a_file")).expect("create a file in tempdir");
     let plain_text = bytes::Bytes::from("Hello world");
     let blob = encrypt.encrypt_blob(plain_text.clone()).expect("encrypt blob");
-    file.write(blob.as_ref()).expect("fill file with stuff");
+    file.write_all(blob.as_ref()).expect("fill file with stuff");
     tempdir
 }
 

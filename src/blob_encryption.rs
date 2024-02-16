@@ -17,7 +17,7 @@ impl EncryptWithChacha {
         if file_content.len() != ChaCha20Poly1305::key_size() {
             anyhow::bail!("Key file content does not have the right length for a key")
         }
-        let key: chacha20poly1305::Key = GenericArray::from_slice(file_content.as_slice()).clone();
+        let key: chacha20poly1305::Key = *GenericArray::from_slice(file_content.as_slice());
         let me = Self {
             key
         };
@@ -49,7 +49,7 @@ impl EncryptWithChacha {
             anyhow::bail!("decrypt_blob data is just the nonce?")
         }
 
-        let nonce = Nonce::from_slice(&data.slice(0..nonce_size)).clone();
+        let nonce = *Nonce::from_slice(&data.slice(0..nonce_size));
         let cipher_text = data.split_off(nonce_size);
 
         let cipher = ChaCha20Poly1305::new(&self.key);

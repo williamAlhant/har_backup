@@ -57,10 +57,8 @@ trait Comm {
 impl Comm for AsyncComm {
     fn send_event(&mut self, event: &Event) {
         for sender in &self.senders {
-            match sender.send(event.clone()) {
-                Ok(_) => (),
-                Err(_) => () // it's ok if it's disconnected
-            }
+            // it's ok if it's disconnected
+            let _ = sender.send(event.clone());
         }
     }
     fn task_id(&self) -> TaskId {
@@ -237,7 +235,7 @@ impl BlobStorage for BlobStorageLocalDirectory {
 
         for event in &events {
             match &event.content {
-                EventContent::ExistsSuccess(result) => return Ok(result.clone()),
+                EventContent::ExistsSuccess(result) => return Ok(*result),
                 EventContent::Error(err) => return Err(err.clone()),
                 _ => todo!()
             };

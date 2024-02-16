@@ -130,6 +130,12 @@ pub struct Stats {
     num_files: usize
 }
 
+impl Default for Manifest {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Manifest {
     pub fn new() -> Self {
         let root_entry = Entry::Directory(Directory { name: "ROOT".to_string(), entries: HashMap::new() });
@@ -155,7 +161,7 @@ impl Manifest {
                     let entry_id = cd.entries.get(component_str)
                         .with_context(|| format!("Entry {} not found in cd {}", component_str, cd.name))?;
                     let entry = &self.entries[entry_id.to_usize()];
-                    last_entry_id = Some(entry_id.clone());
+                    last_entry_id = Some(*entry_id);
                     if let Entry::Directory(directory) = entry {
                         cd = &directory;
                     }
@@ -245,8 +251,7 @@ impl Manifest {
         let mut map = HashMap::new();
         let mut dirs_to_visit = vec![self.root];
 
-        while !dirs_to_visit.is_empty() {
-            let dir_entry_id = dirs_to_visit.pop().unwrap();
+        while let Some(dir_entry_id) = dirs_to_visit.pop() {
             let dir = self.get_entry(dir_entry_id).try_directory_ref().unwrap();
 
             for sub_entry_id in dir.entries.values().cloned() {
@@ -280,8 +285,8 @@ fn print_entry(manifest: &Manifest, entry: &Entry, indent: usize) {
         Entry::File(file) => println!("{}{:?}", " ".repeat(indent), file),
         Entry::Directory(dir) => {
             println!("{}{}", " ".repeat(indent), dir.name);
-            for (_, entry_id) in &dir.entries {
-                let entry = manifest.get_entry(entry_id.clone());
+            for &entry_id in dir.entries.values() {
+                let entry = manifest.get_entry(entry_id);
                 print_entry(manifest, entry, indent + 2);
             }
         }
@@ -322,9 +327,7 @@ pub fn diff_manifests(manifest_a: &Manifest, manifest_b: &Manifest) -> DiffManif
 
     let mut to_visit_dirs: Vec<(&Directory, &Directory)> = vec![(root_dir_a, root_dir_b)];
 
-    while !to_visit_dirs.is_empty() {
-
-        let (dir_a, dir_b) = to_visit_dirs.pop().unwrap();
+    while let Some((dir_a, dir_b)) = to_visit_dirs.pop() {
 
         for entry_id_a in dir_a.entries.values().cloned() {
 
@@ -389,7 +392,7 @@ fn get_num_child_in_dir_recurs(dirs_num_child: &mut HashMap<EntryId, (usize, usi
     };
     
     let mut size = (0, 0);
-    for (_, &entry_id) in &dir.entries {
+    for &entry_id in dir.entries.values() {
         let entry = manifest.get_entry(entry_id);
         let sub_size = match entry {
             Entry::File(_) => (1, 0),
