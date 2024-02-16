@@ -1,4 +1,6 @@
-use std::path::{Path, PathBuf, Component};
+use std::path::{Path, PathBuf};
+#[cfg(test)]
+use std::path::Component;
 use std::collections::HashMap;
 use anyhow::Context;
 use serde::{Deserialize, Serialize, Serializer, Deserializer};
@@ -95,6 +97,7 @@ enum Entry {
 }
 
 impl Entry {
+    #[cfg(test)]
     fn try_file_ref(&self) -> anyhow::Result<&File> {
         if let Entry::File(x) = self { Ok(x) } else { anyhow::bail!("Tried to force enum type but it's the wrong one") }
     }
@@ -140,6 +143,7 @@ impl Manifest {
         &self.entries[id.to_usize()]
     }
 
+    #[cfg(test)]
     fn join_and_get_entry_id(&self, base: EntryId, path_add: &Path) -> anyhow::Result<EntryId> {
         let mut cd = self.entries[base.to_usize()].try_directory_ref()?;
         let mut last_entry_id = None;

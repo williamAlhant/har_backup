@@ -51,7 +51,6 @@ fn main() -> Result<()> {
         Command::InitLocal => init_local(),
         Command::FetchManifest => WithRemoteAndLocal::new()?.fetch_manifest(),
         Command::Diff => WithLocal::new()?.diff(),
-        _ => todo!()
     }
 }
 

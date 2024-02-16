@@ -1,6 +1,5 @@
 use super::blob_storage::BlobStorage;
-use super::manifest::{Manifest, diff_manifests};
-use std::path::Path;
+use super::manifest::Manifest;
 use log::debug;
 use anyhow::Result;
 
