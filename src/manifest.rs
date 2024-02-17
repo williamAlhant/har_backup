@@ -27,7 +27,7 @@ struct Directory {
     entries: HashMap<String, EntryId>
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 struct BlobKey {
     key: blake3::Hash
 }
@@ -38,42 +38,6 @@ impl TryFrom<&str> for BlobKey {
     fn try_from(hex: &str) -> Result<Self, Self::Error> {
         let key = blake3::Hash::from_hex(hex).context("Could not convert hex str to hash/blobkey")?;
         Ok(Self {key})
-    }
-}
-
-impl Serialize for BlobKey {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serializer.serialize_bytes(self.key.as_bytes())
-    }
-}
-
-struct HashVisitor;
-impl<'de> serde::de::Visitor<'de> for HashVisitor {
-    type Value = blake3::Hash;
-
-    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-        write!(formatter, "a certain number of bytes")
-    }
-
-    fn visit_bytes<E>(self, v: &[u8]) -> Result<Self::Value, E>
-    where
-        E: serde::de::Error,
-    {
-        let proper_num_bytes: [u8; blake3::OUT_LEN] = v.try_into().map_err(|_| E::custom("could not convert slice to array"))?;
-        Ok(blake3::Hash::from_bytes(proper_num_bytes))
-    }
-}
-
-impl<'de> Deserialize<'de> for BlobKey {
-    fn deserialize<D>(deser: D) -> Result<Self, D::Error>
-        where
-            D: Deserializer<'de>,
-    {
-        let key = deser.deserialize_bytes(HashVisitor)?;
-        Ok(BlobKey { key })
     }
 }
 
