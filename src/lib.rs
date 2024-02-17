@@ -5,3 +5,4 @@ pub mod manifest;
 pub mod thread_sync;
 pub mod mirror;
 pub mod dot_har;
+pub mod cmd_impl;

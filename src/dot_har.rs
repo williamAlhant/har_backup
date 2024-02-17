@@ -15,6 +15,12 @@ pub struct DotHar {
 }
 
 impl DotHar {
+
+    // should be used for testing only
+    pub fn with_path(path: PathBuf) -> Self {
+        Self { path }
+    }
+
     pub fn find_cwd_or_ancestor() -> Result<Self> {
         let cwd = std::env::current_dir()?;
         for dir in cwd.ancestors() {
@@ -65,5 +71,13 @@ impl DotHar {
         std::fs::copy(&path, backup_path).context("Backup of fetched manifest")?;
         std::fs::write(path, &manifest_blob).context("Storing fetched manifest")?;
         Ok(())
+    }
+
+    pub fn set_path_to_keyfile(&self, path: &Path) -> Result<()> {
+        std::fs::write(self.path.join(KEYPATH_FILE), path.to_str().context("Path to str")?).context("Write KEYPATH_FILE")
+    }
+
+    pub fn set_remote_spec(&self, spec: &str) -> std::io::Result<()> {
+        std::fs::write(self.path.join(REMOTE_FILE), spec)
     }
 }
