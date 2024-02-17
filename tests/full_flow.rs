@@ -36,7 +36,7 @@ fn fetch_diff_push() -> Result<()> {
 
     with_remote_and_local.init_remote()?;
     with_remote_and_local.fetch_manifest()?;
-    with_local.diff()?;
+    with_local.diff(false)?;
 
     let new_file_path = archive_root.path().join("chuchu");
     std::fs::write(&new_file_path, "tamtam").unwrap();

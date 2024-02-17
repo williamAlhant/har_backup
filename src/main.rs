@@ -31,18 +31,28 @@ enum Command {
         about="Compare local tree with fetched manifest",
         after_help="Do not forget to fetch before.",
     )]
-    Diff,
+    Diff(Diff),
     #[command(
         about="Push changes from local to remote",
         after_help="It diffs local tree with fetched remote manifest.\n\
                     It uploads new files, directories and uploads the updated manifest.",
     )]
-    Push
+    Push,
+    #[command(
+        about="Pull files from remote",
+    )]
+    Pull,
 }
 
 #[derive(Args, Debug)]
 struct CreateKey {
     path: PathBuf,
+}
+
+#[derive(Args, Debug)]
+struct Diff {
+    #[arg(long, required=false, help="Show what extra entries are in remote instead of what extra entries are in local")]
+    remote: bool,
 }
 
 fn main() -> Result<()> {
@@ -55,8 +65,9 @@ fn main() -> Result<()> {
         Command::CreateKey(sub_cli) => create_key(&sub_cli.path),
         Command::InitLocal => init_local(),
         Command::FetchManifest => WithRemoteAndLocal::new()?.fetch_manifest(),
-        Command::Diff => WithLocal::new()?.diff(),
+        Command::Diff(sub_cli) => WithLocal::new()?.diff(sub_cli.remote),
         Command::Push => WithRemoteAndLocal::new()?.push(),
+        Command::Pull => WithRemoteAndLocal::new()?.pull(),
     }
 }
 

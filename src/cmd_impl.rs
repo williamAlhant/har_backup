@@ -21,11 +21,20 @@ impl WithLocal {
         Ok(me)
     }
 
-    pub fn diff(&self) -> Result<()> {
+    pub fn diff(&self, remote: bool) -> Result<()> {
         let local_manifest = Manifest::from_fs(self.local_meta.get_archive_root()).context("Making manifest from local tree")?;
         let remote_manifest = self.local_meta.get_manifest().context("Reading fetched manifest")?;
-        let diff = manifest::diff_manifests(&local_manifest, &remote_manifest);
-        println!("Local tree has the additional entries:");
+        let diff = match remote {
+            false => manifest::diff_manifests(&local_manifest, &remote_manifest),
+            true => manifest::diff_manifests(&remote_manifest, &local_manifest),
+        };
+
+        if remote {
+            println!("Remote has the additional entries:");
+        }
+        else {
+            println!("Local tree has the additional entries:");
+        }
         for entry_path in &diff.paths_of_top_extra_in_a {
             println!("{}", entry_path.to_str().unwrap());
         }
@@ -137,6 +146,22 @@ impl WithRemoteAndLocal {
         println!("Remote manifest updated.");
 
         Ok(())
+    }
+
+    pub fn pull(&mut self) -> Result<()> {
+        let local_manifest = Manifest::from_fs(self.local_meta.get_archive_root()).context("Making manifest from local tree")?;
+        let remote_manifest = self.local_meta.get_manifest().context("Reading fetched manifest")?;
+        let diff = manifest::diff_manifests(&remote_manifest, &local_manifest);
+
+        if diff.top_extra_ids_in_a.is_empty() {
+            println!("Nothing to pull.");
+            return Ok(());
+        }
+
+        // println!("Starting to pull {} files...", files_to_push.len());
+        // let results = self.remote.pull(&paths_in_archive, prefix_path, PushConfig::default())?;
+        // println!("Pull done.");
+        todo!()
     }
 }
 
