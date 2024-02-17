@@ -1,6 +1,6 @@
 use anyhow::{Result, Context};
 use crate::manifest::{self, Manifest};
-use crate::mirror::PushConfig;
+use crate::mirror::TransferConfig;
 use crate::{blob_storage_local_directory::BlobStorageLocalDirectory, mirror::Mirror};
 use crate::blob_storage::BlobStorage;
 use crate::dot_har::DotHar;
@@ -128,7 +128,7 @@ impl WithRemoteAndLocal {
         let prefix_path = self.local_meta.get_archive_root();
 
         println!("Starting to push {} files...", files_to_push.len());
-        let results = self.remote.push(&paths_in_archive, prefix_path, PushConfig::default())?;
+        let results = self.remote.push(&paths_in_archive, prefix_path, TransferConfig::default())?;
         println!("Push done. Next is to update the remote manifest.");
 
         // for testing

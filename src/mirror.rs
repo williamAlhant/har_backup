@@ -46,7 +46,7 @@ impl Mirror {
         Ok(())
     }
 
-    pub fn push(&mut self, paths: &Vec<PathBuf>, prefix_path: &Path, config: PushConfig) -> Result<Vec<Option<blob_storage::UploadResult>>> {
+    pub fn push(&mut self, paths: &Vec<PathBuf>, prefix_path: &Path, config: TransferConfig) -> Result<Vec<Option<blob_storage::UploadResult>>> {
 
         use blob_storage::{TaskId, EventContent, UploadResult};
 
@@ -108,13 +108,13 @@ impl Mirror {
     }
 }
 
-pub struct PushConfig {
+pub struct TransferConfig {
     active_tasks_limit: usize,
     active_size_limit: usize,
     time_between_prints: std::time::Duration,
 }
 
-impl Default for PushConfig {
+impl Default for TransferConfig {
     fn default() -> Self {
         Self {
             active_size_limit: 10_000_000,
@@ -165,10 +165,10 @@ mod tests {
         let files = make_files(5, 1000);
         let paths: Vec<PathBuf> = files.iter().map(|f| PathBuf::from(f.path())).collect();
 
-        let config = PushConfig { active_size_limit: 10_000_000, active_tasks_limit: 32, time_between_prints: Duration::from_millis(0) };
+        let config = TransferConfig { active_size_limit: 10_000_000, active_tasks_limit: 32, time_between_prints: Duration::from_millis(0) };
         mirror.push(&paths, Path::new(""), config)?;
 
-        let config = PushConfig { active_size_limit: 100, active_tasks_limit: 32, time_between_prints: Duration::from_millis(0) };
+        let config = TransferConfig { active_size_limit: 100, active_tasks_limit: 32, time_between_prints: Duration::from_millis(0) };
         mirror.push(&paths, Path::new(""), config)?;
 
         Ok(())
