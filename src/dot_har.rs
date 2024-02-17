@@ -7,6 +7,7 @@ pub const DOT_HAR_NAME: &str = ".har";
 const KEYPATH_FILE: &str = "keypath";
 const REMOTE_FILE: &str = "remote";
 const FETCHED_MANIFEST: &str = "fetched_manifest";
+const FETCHED_MANIFEST_BACKUP: &str = "fetched_manifest.backup";
 
 #[derive(Clone)]
 pub struct DotHar {
@@ -55,6 +56,14 @@ impl DotHar {
 
     pub fn store_manifest(&self, manifest_blob: bytes::Bytes) -> Result<()> {
         std::fs::write(self.path.join(FETCHED_MANIFEST), &manifest_blob).context("Storing fetched manifest")?;
+        Ok(())
+    }
+
+    pub fn store_manifest_with_backup(&self, manifest_blob: bytes::Bytes) -> Result<()> {
+        let path = self.path.join(FETCHED_MANIFEST);
+        let backup_path = self.path.join(FETCHED_MANIFEST_BACKUP);
+        std::fs::copy(&path, backup_path).context("Backup of fetched manifest")?;
+        std::fs::write(path, &manifest_blob).context("Storing fetched manifest")?;
         Ok(())
     }
 }

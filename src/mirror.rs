@@ -39,6 +39,13 @@ impl Mirror {
         Ok(remote_manifest_bytes)
     }
 
+    pub fn push_manifest_blob(&mut self, data: bytes::Bytes) -> Result<()> {
+        debug!("Upload remote manifest...");
+        self.blob_storage.upload_blocking(data, Some(MANIFEST_KEY))?;
+        debug!("Upload remote manifest done");
+        Ok(())
+    }
+
     pub fn push(&mut self, paths: &Vec<PathBuf>, prefix_path: &Path, config: PushConfig) -> Result<Vec<Option<blob_storage::UploadResult>>> {
 
         use blob_storage::{TaskId, EventContent, UploadResult};

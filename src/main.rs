@@ -1,11 +1,12 @@
 use clap::{Parser, Args, Subcommand};
 use anyhow::{Result, Context};
-use har_backup::manifest::{self, Manifest};
+use har_backup::manifest::{self, print_tree, Manifest};
 use har_backup::mirror::PushConfig;
 use har_backup::{blob_storage_local_directory::BlobStorageLocalDirectory, mirror::Mirror};
-use har_backup::blob_storage::BlobStorage;
+use har_backup::blob_storage::{BlobStorage, UploadResult};
 use har_backup::dot_har::DotHar;
 use std::path::{Path, PathBuf};
+use std::collections::HashMap;
 use log::debug;
 
 #[derive(Parser)]
@@ -157,24 +158,49 @@ impl WithRemoteAndLocal {
 
     fn push(&mut self) -> Result<()> {
         let local_manifest = Manifest::from_fs(self.local_meta.get_archive_root()).context("Making manifest from local tree")?;
-        let remote_manifest = self.local_meta.get_manifest().context("Reading fetched manifest")?;
+        let mut remote_manifest = self.local_meta.get_manifest().context("Reading fetched manifest")?;
         let diff = manifest::diff_manifests(&local_manifest, &remote_manifest);
+
+        if diff.top_extra_ids_in_a.is_empty() {
+            println!("Nothing to push.");
+            return Ok(());
+        }
 
         let path_getter = local_manifest.get_full_path_getter();
 
         let mut files_to_push = Vec::new();
-        for top_extra_entry in diff.top_extra_ids_in_a {
+        for &top_extra_entry in &diff.top_extra_ids_in_a {
             let extra_files = local_manifest.get_child_files_recurs(top_extra_entry);
             files_to_push.extend(extra_files);
         }
-        let paths: Vec<PathBuf> = files_to_push.iter().map(|&id| path_getter(id)).collect();
+        let paths_in_archive: Vec<PathBuf> = files_to_push.iter().map(|&id| path_getter(id)).collect();
         let prefix_path = self.local_meta.get_archive_root();
 
         println!("Starting to push {} files...", files_to_push.len());
-        let results = self.remote.push(&paths, prefix_path, PushConfig::default())?;
+        let results = self.remote.push(&paths_in_archive, prefix_path, PushConfig::default())?;
         println!("Push done. Next is to update the remote manifest.");
 
-        todo!();
+        // for testing
+        // let results = vec![Some(UploadResult::Ok("05fd1dcbe8e3b2932f532f1c35b25607ad697b122245829b090178e645223ac1".to_string())); paths_in_archive.len()];
+
+        let mut blob_keys: HashMap<PathBuf, String> = HashMap::with_capacity(results.len());
+        for (path, result) in std::iter::zip(paths_in_archive, results){
+            let result = result.context("Result of upload not filled properly")?;
+            let hash_str = result.context("Result of upload is error")?;
+            blob_keys.insert(path, hash_str);
+        }
+
+        manifest::add_new_entries_to_manifest(&local_manifest, &mut remote_manifest, &diff, &blob_keys)?;
+        debug!("add_new_entries_to_manifest done");
+
+        let new_remote_manifest_bytes = remote_manifest.to_bytes()?;
+        self.remote.push_manifest_blob(new_remote_manifest_bytes.clone())?;
+        debug!("Upload of new manifest done");
+
+        self.local_meta.store_manifest_with_backup(new_remote_manifest_bytes)?;
+        debug!("New manifest stored");
+
+        println!("Remote manifest updated.");
 
         Ok(())
     }

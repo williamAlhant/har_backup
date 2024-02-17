@@ -1,8 +1,8 @@
 use std::path::{Path, PathBuf};
-#[cfg(test)]
 use std::path::Component;
 use std::collections::HashMap;
 use anyhow::Context;
+use log::debug;
 use serde::{Deserialize, Serialize, Serializer, Deserializer};
 use std::fmt;
 
@@ -30,6 +30,15 @@ struct Directory {
 #[derive(Clone, PartialEq)]
 struct BlobKey {
     key: blake3::Hash
+}
+
+impl TryFrom<&str> for BlobKey {
+    type Error = anyhow::Error;
+
+    fn try_from(hex: &str) -> Result<Self, Self::Error> {
+        let key = blake3::Hash::from_hex(hex).context("Could not convert hex str to hash/blobkey")?;
+        Ok(Self {key})
+    }
 }
 
 impl Serialize for BlobKey {
@@ -149,7 +158,6 @@ impl Manifest {
         &self.entries[id.to_usize()]
     }
 
-    #[cfg(test)]
     fn join_and_get_entry_id(&self, base: EntryId, path_add: &Path) -> anyhow::Result<EntryId> {
         let mut cd = self.entries[base.to_usize()].try_directory_ref()?;
         let mut last_entry_id = None;
@@ -169,6 +177,9 @@ impl Manifest {
                 _ => anyhow::bail!("Cannot handle path components other than root/normal")
             };
         }
+        if path_add.components().count() == 0 {
+            return Ok(base);
+        }
         last_entry_id.context("last_entry is none?")
     }
 
@@ -186,6 +197,14 @@ impl Manifest {
         let parent_dir = self.entries[parent_dir.to_usize()].try_directory_ref_mut()?;
         parent_dir.entries.insert(entry_name, entry_id);
         Ok(entry_id)
+    }
+
+    pub fn add_file(&mut self, file: File, parent_dir: EntryId) -> anyhow::Result<EntryId> {
+        self.add(Entry::File(file), parent_dir)
+    }
+
+    pub fn add_dir(&mut self, dir: Directory, parent_dir: EntryId) -> anyhow::Result<EntryId> {
+        self.add(Entry::Directory(dir), parent_dir)
     }
 
     pub fn from_fs(fs_dir: &Path) -> anyhow::Result<Self> {
@@ -270,6 +289,10 @@ impl Manifest {
     }
 
     fn get_full_path(&self, entry_id: EntryId, map_parent: &HashMap<EntryId, EntryId>) -> PathBuf {
+        if entry_id == self.root {
+            return PathBuf::from("");
+        }
+
         let mut components = vec![self.get_entry(entry_id).name()];
         let mut parent_id = map_parent.get(&entry_id).unwrap();
         while parent_id != &self.root {
@@ -361,6 +384,7 @@ pub fn diff_manifests(manifest_a: &Manifest, manifest_b: &Manifest) -> DiffManif
         for entry_id_a in dir_a.entries.values().cloned() {
 
             // exclude stuff
+            // todo: move to from_fs()
             let full_path = path_getter(entry_id_a);
             if full_path == Path::new(".har") {
                 continue;
@@ -398,6 +422,60 @@ pub fn diff_manifests(manifest_a: &Manifest, manifest_b: &Manifest) -> DiffManif
     }
     
     diff
+}
+
+pub fn add_new_entries_to_manifest(
+    src: &Manifest,
+    dest: &mut Manifest,
+    diff: &DiffManifests,
+    blob_keys: &HashMap<PathBuf, String>
+) -> anyhow::Result<()> {
+
+    let map_parent_src = src.get_map_parent();
+
+    let mut dirs_to_visit: Vec<(EntryId, EntryId)> = Vec::new();
+
+    let add_entry_src_to_dest = |entry_id_src, entry_src: &Entry, dest_dir, dir_path: &Path, dest_manifest: &mut Manifest, dirs_to_visit: &mut Vec<(EntryId, EntryId)>|
+        -> anyhow::Result<()> {
+        match entry_src {
+            Entry::File(file) => {
+                let path = dir_path.join(file.name.clone());
+                let blob_key_str = blob_keys.get(&path).with_context(|| format!("Did not find path-key entry in map path:{}", path.to_str().unwrap()))?;
+                let blob_key = BlobKey::try_from(blob_key_str.as_str())?;
+                dest_manifest.add_file(File { name: file.name.clone(), blob_key }, dest_dir).context("Add file from src/dest diff in dest")?;
+            },
+            Entry::Directory(dir) => {
+                let new_dir_b = dest_manifest.add_dir(Directory { name: dir.name.clone(), entries: HashMap::new() }, dest_dir).context("Add dir from src/dest diff in dest")?;
+                dirs_to_visit.push((entry_id_src, new_dir_b));
+            }
+        }
+        Ok(())
+    };
+
+    debug!("add_new_entries_to_manifest step 1");
+
+    for &entry_id_a in &diff.top_extra_ids_in_a {
+        let entry_a = src.get_entry(entry_id_a);
+        let parent_a = map_parent_src[&entry_id_a];
+        let parent_path = src.get_full_path(parent_a, &map_parent_src);
+        let parent_b = dest.join_and_get_entry_id(dest.root, &parent_path)?;
+
+        add_entry_src_to_dest(entry_id_a, entry_a, parent_b, &parent_path, dest, &mut dirs_to_visit)?;
+    }
+
+    debug!("add_new_entries_to_manifest step 2");
+
+    while let Some((dir_entry_id_a, dir_entry_id_b)) = dirs_to_visit.pop() {
+        let dir_entry_a = src.get_entry(dir_entry_id_a);
+        let dir_a = dir_entry_a.try_directory_ref().unwrap();
+        let parent_path = src.get_full_path(dir_entry_id_a, &map_parent_src);
+        for (_, &sub_entry_id) in &dir_a.entries {
+            let sub_entry = src.get_entry(sub_entry_id);
+            add_entry_src_to_dest(sub_entry_id, sub_entry, dir_entry_id_b, &parent_path, dest, &mut dirs_to_visit)?;
+        }
+    }
+
+    Ok(())
 }
 
 fn add_tuples(t0: (usize, usize), t1: (usize, usize)) -> (usize, usize) {
