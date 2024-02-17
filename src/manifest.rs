@@ -3,7 +3,7 @@ use std::path::Component;
 use std::collections::HashMap;
 use anyhow::Context;
 use log::debug;
-use serde::{Deserialize, Serialize, Serializer, Deserializer};
+use serde::{Deserialize, Serialize};
 use std::fmt;
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Serialize, Deserialize, Hash)]
@@ -41,6 +41,12 @@ impl TryFrom<&str> for BlobKey {
     }
 }
 
+impl BlobKey {
+    fn to_string(&self) -> String {
+        self.key.to_hex().to_string()
+    }
+}
+
 impl fmt::Debug for BlobKey {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let hash_hex = self.key.to_hex();
@@ -71,7 +77,7 @@ enum Entry {
 }
 
 impl Entry {
-    #[cfg(test)]
+
     fn try_file_ref(&self) -> anyhow::Result<&File> {
         if let Entry::File(x) = self { Ok(x) } else { anyhow::bail!("Tried to force enum type but it's the wrong one") }
     }
@@ -164,11 +170,11 @@ impl Manifest {
         Ok(entry_id)
     }
 
-    pub fn add_file(&mut self, file: File, parent_dir: EntryId) -> anyhow::Result<EntryId> {
+    fn add_file(&mut self, file: File, parent_dir: EntryId) -> anyhow::Result<EntryId> {
         self.add(Entry::File(file), parent_dir)
     }
 
-    pub fn add_dir(&mut self, dir: Directory, parent_dir: EntryId) -> anyhow::Result<EntryId> {
+    fn add_dir(&mut self, dir: Directory, parent_dir: EntryId) -> anyhow::Result<EntryId> {
         self.add(Entry::Directory(dir), parent_dir)
     }
 
@@ -295,6 +301,37 @@ impl Manifest {
         }
 
         child_files
+    }
+
+    pub fn get_child_dirs_recurs(&self, entry_id: EntryId) -> Vec<EntryId> {
+        let entry = self.get_entry(entry_id);
+        if let Entry::File(_) = entry {
+            return Vec::new();
+        }
+
+        let mut to_visit: Vec<EntryId> = entry.try_directory_ref().unwrap().entries.values().cloned().collect();
+        let mut child_dirs = vec![entry_id];
+
+        while let Some(entry_id) = to_visit.pop() {
+            let entry = self.get_entry(entry_id);
+            match entry {
+                Entry::File(_) => (),
+                Entry::Directory(dir) => {
+                    child_dirs.push(entry_id);
+                    to_visit.extend(dir.entries.values().clone())
+                },
+            }
+        }
+
+        child_dirs
+    }
+
+    // this method does not really make sense
+    // but should we make entry, file, directory pub instead?
+    pub fn get_file_key_and_size(&self, entry_id: EntryId) -> anyhow::Result<(String, u64)> {
+        let entry = self.get_entry(entry_id);
+        let file = entry.try_file_ref()?;
+        Ok((file.blob_key.to_string(), file.size))
     }
 }
 

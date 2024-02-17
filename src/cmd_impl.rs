@@ -166,10 +166,33 @@ impl WithRemoteAndLocal {
             return Ok(());
         }
 
-        // println!("Starting to pull {} files...", files_to_push.len());
-        // let results = self.remote.pull(&paths_in_archive, prefix_path, PushConfig::default())?;
-        // println!("Pull done.");
-        todo!()
+        let remote_path_getter = remote_manifest.get_full_path_getter();
+
+        let mut files_to_pull = Vec::new();
+        for &top_extra_entry in &diff.top_extra_ids_in_a {
+            let extra_files = remote_manifest.get_child_files_recurs(top_extra_entry);
+            files_to_pull.extend(extra_files);
+        }
+        let files_to_pull: Vec<_> = files_to_pull.into_iter().map(|entry_id| {
+            let path = remote_path_getter(entry_id);
+            let (key, size) = remote_manifest.get_file_key_and_size(entry_id).unwrap();
+            (path, key, size as usize)
+        }).collect();
+
+        debug!("Making sure all directories exist");
+        for &top_extra_entry in &diff.top_extra_ids_in_a {
+            let extra_dirs = remote_manifest.get_child_dirs_recurs(top_extra_entry);
+            for &dir in &extra_dirs {
+                let dir_path = remote_path_getter(dir);
+                std::fs::create_dir_all(dir_path).context("Making sure all directories exist before pulling")?;
+            }
+        }
+
+        println!("Starting to pull {} files...", files_to_pull.len());
+        self.remote.pull(&files_to_pull, self.local_meta.get_archive_root(), TransferConfig::default())?;
+        println!("Pull done.");
+
+        Ok(())
     }
 }
 

@@ -106,6 +106,67 @@ impl Mirror {
 
         Ok(results)
     }
+
+    // files = (archive_path, blob_key, file_size)
+    pub fn pull(&mut self, files: &Vec<(PathBuf, String, usize)>, prefix_path: &Path, config: TransferConfig) -> Result<()> {
+
+        use blob_storage::{TaskId, EventContent};
+
+        // map from taskid to files index
+        let mut active_tasks: HashMap<TaskId, usize> = HashMap::new();
+        let mut active_size = 0; // sum of size of files being transferred
+        let mut next_index = 0;
+        let events = self.blob_storage.events();
+        let mut time_of_last_print = std::time::Instant::now();
+        let mut total_transferred = 0;
+
+        while next_index < files.len() || active_tasks.len() > 0 {
+            while next_index < files.len()
+                    && (active_size < config.active_size_limit || active_tasks.is_empty())
+                    && active_tasks.len() < config.active_tasks_limit {
+                let file = &files[next_index];
+                let data_size = file.2;
+                let key = file.1.as_str();
+                let task_id = self.blob_storage.download(key);
+                active_tasks.insert(task_id, next_index);
+                active_size += data_size;
+                debug!("Started task {} for index {}", task_id.to_u64(), next_index);
+                next_index += 1;
+            }
+
+            if active_tasks.len() > 0 {
+                let event = events.recv()?;
+                debug!("Got event {}", event);
+                match event.content {
+                    EventContent::Error(e) => anyhow::bail!(e),
+                    EventContent::DownloadSuccess(bytes) => {
+                        let index = active_tasks[&event.id];
+                        let file = &files[index];
+
+                        let file_path = prefix_path.join(&file.0);
+                        std::fs::write(file_path, bytes)?;
+
+                        let size = file.2;
+                        active_size -= size;
+                        total_transferred += size;
+                        active_tasks.remove(&event.id);
+                    },
+                    _ => panic!("Should not get anything except Error or DownloadSuccess")
+                }
+            }
+
+            let elapsed_since_last_print = std::time::Instant::now() - time_of_last_print;
+            if elapsed_since_last_print > config.time_between_prints {
+                let done_tasks = next_index; // not quite but good enough
+                let total_tasks = files.len();
+                let num_active = active_tasks.len();
+                println!("Pull status: {}/{} num active: {} transferred bytes: {} active tasks: {:?}", done_tasks, total_tasks, num_active, total_transferred, active_tasks.keys());
+                time_of_last_print = std::time::Instant::now();
+            }
+        }
+
+        Ok(())
+    }
 }
 
 pub struct TransferConfig {
@@ -130,6 +191,7 @@ mod tests {
     use tempfile::NamedTempFile;
     use crate::blob_storage_local_directory::BlobStorageLocalDirectory;
     use std::io::Write;
+    use std::time::Duration;
 
     pub fn make_dummy_keyfile() -> NamedTempFile {
         let mut keyfile = NamedTempFile::new().expect("create tempfile for dummy encryption key");
@@ -155,8 +217,7 @@ mod tests {
     }
 
     #[test]
-    fn push() -> Result<()> {
-        use std::time::Duration;
+    fn push0() -> Result<()> {
 
         let tempdir = tempfile::tempdir().expect("create tempdir for local blob storage");
         let blob_storage = make_dummy_blob_storage(tempdir.path());
@@ -168,8 +229,52 @@ mod tests {
         let config = TransferConfig { active_size_limit: 10_000_000, active_tasks_limit: 32, time_between_prints: Duration::from_millis(0) };
         mirror.push(&paths, Path::new(""), config)?;
 
+        Ok(())
+    }
+
+    #[test]
+    fn push1() -> Result<()> {
+
+        let tempdir = tempfile::tempdir().expect("create tempdir for local blob storage");
+        let blob_storage = make_dummy_blob_storage(tempdir.path());
+
+        let mut mirror = Mirror::new(Box::new(blob_storage));
+        let files = make_files(5, 1000);
+        let paths: Vec<PathBuf> = files.iter().map(|f| PathBuf::from(f.path())).collect();
+
         let config = TransferConfig { active_size_limit: 100, active_tasks_limit: 32, time_between_prints: Duration::from_millis(0) };
         mirror.push(&paths, Path::new(""), config)?;
+
+        Ok(())
+    }
+
+    #[test]
+    fn pull() -> Result<()> {
+
+        let tempdir = tempfile::tempdir().expect("create tempdir for local blob storage");
+        let mut blob_storage = make_dummy_blob_storage(tempdir.path());
+        let num_dummy_blobs = 5;
+        let dummy_blob_size = 1000;
+        let big_data_buf: Vec<u8> = vec![42; dummy_blob_size];
+        let big_data_buf = bytes::Bytes::from(big_data_buf);
+
+        for i in 0..num_dummy_blobs {
+            let dummy_blob_key = format!("blob_{}", i);
+            blob_storage.upload_blocking(big_data_buf.clone(), Some(&dummy_blob_key)).expect("Putting dummy blob in blob storage");
+        }
+
+        let mut mirror = Mirror::new(Box::new(blob_storage));
+
+        let mut files_arg_pull = Vec::new();
+        for i in 0..num_dummy_blobs {
+            let path = PathBuf::from(format!("kek_{}", i));
+            let key = format!("blob_{}", i);
+            files_arg_pull.push((path, key, dummy_blob_size));
+        }
+
+        let sink_dir = tempfile::tempdir()?;
+        let config = TransferConfig { active_size_limit: 10_000_000, active_tasks_limit: 32, time_between_prints: Duration::from_millis(0) };
+        mirror.pull(&files_arg_pull, sink_dir.path(), config)?;
 
         Ok(())
     }
