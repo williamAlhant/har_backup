@@ -27,6 +27,10 @@ enum Command {
         after_help="It stores the manifest in .har",
     )]
     FetchManifest,
+    #[command(about="Print the fetched manifest")]
+    PrintFetchedManifest,
+    #[command(about="Push an empty manifest")]
+    InitRemote,
     #[command(
         about="Compare local tree with fetched manifest",
         after_help="Do not forget to fetch before.",
@@ -65,6 +69,8 @@ fn main() -> Result<()> {
         Command::CreateKey(sub_cli) => create_key(&sub_cli.path),
         Command::InitLocal => init_local(),
         Command::FetchManifest => WithRemoteAndLocal::new()?.fetch_manifest(),
+        Command::InitRemote => WithRemoteAndLocal::new()?.init_remote(),
+        Command::PrintFetchedManifest => WithLocal::new()?.print_fetched_manifest(),
         Command::Diff(sub_cli) => WithLocal::new()?.diff(sub_cli.remote),
         Command::Push => WithRemoteAndLocal::new()?.push(),
         Command::Pull => WithRemoteAndLocal::new()?.pull(),

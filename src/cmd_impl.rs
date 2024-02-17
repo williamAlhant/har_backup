@@ -41,6 +41,14 @@ impl WithLocal {
         println!("Total extra files: {}, total extra dirs: {}", diff.extra_files_in_a, diff.extra_dirs_in_a);
         Ok(())
     }
+
+    pub fn print_fetched_manifest(&self) -> Result<()> {
+        let fetched_manifest = self.local_meta.get_manifest().context("Reading fetched manifest")?;
+        let stats = fetched_manifest.get_stats();
+        println!("{:?}", stats);
+        manifest::print_tree(&fetched_manifest);
+        Ok(())
+    }
 }
 
 pub struct WithRemoteAndLocal {

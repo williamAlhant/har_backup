@@ -60,7 +60,8 @@ impl Default for BlobKey {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 struct File {
     name: String,
-    blob_key: BlobKey
+    blob_key: BlobKey,
+    size: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -190,7 +191,8 @@ impl Manifest {
                 self.add_dir_from_fs(new_dir, &fs_dir_entry.path())?;
             }
             else if file_type.is_file() {
-                let manifest_entry = Entry::File(File {name: entry_name, blob_key: BlobKey::default()});
+                let size = fs_dir_entry.metadata().context("Getting file metadata")?.len();
+                let manifest_entry = Entry::File(File {name: entry_name, blob_key: BlobKey::default(), size});
                 self.add(manifest_entry, dir)?;
             }
         }
@@ -406,7 +408,7 @@ pub fn add_new_entries_to_manifest(
                 let path = dir_path.join(file.name.clone());
                 let blob_key_str = blob_keys.get(&path).with_context(|| format!("Did not find path-key entry in map path:{}", path.to_str().unwrap()))?;
                 let blob_key = BlobKey::try_from(blob_key_str.as_str())?;
-                dest_manifest.add_file(File { name: file.name.clone(), blob_key }, dest_dir).context("Add file from src/dest diff in dest")?;
+                dest_manifest.add_file(File { name: file.name.clone(), blob_key, size: file.size }, dest_dir).context("Add file from src/dest diff in dest")?;
             },
             Entry::Directory(dir) => {
                 let new_dir_b = dest_manifest.add_dir(Directory { name: dir.name.clone(), entries: HashMap::new() }, dest_dir).context("Add dir from src/dest diff in dest")?;
@@ -490,11 +492,11 @@ mod tests {
     }
 
     fn dummy_file() -> Entry {
-        Entry::File(File {name: "imafile".to_string(), blob_key: dummy_blob_key()})
+        Entry::File(File {name: "imafile".to_string(), blob_key: dummy_blob_key(), size: 42})
     }
 
     fn dummy_file_with_name(name: &str) -> Entry {
-        Entry::File(File {name: name.to_string(), blob_key: BlobKey::default()})
+        Entry::File(File {name: name.to_string(), blob_key: BlobKey::default(), size: 42})
     }
 
     fn dummy_dir() -> Entry {
