@@ -105,3 +105,85 @@ impl TaskHelper {
         receiver
     }
 }
+
+macro_rules! implement_blob_storage_for_task_provider {
+    ($ty:ty) => {
+        impl BlobStorage for $ty {
+
+            fn upload(&mut self, data: bytes::Bytes, key: Option<&str>) -> crate::blob_storage::TaskId {
+                let task = self.new_upload_task(data, key);
+                self.task_helper.run_task(task)
+            }
+
+            fn download(&mut self, key: &str) -> crate::blob_storage::TaskId {
+                let task = self.new_download_task(key);
+                self.task_helper.run_task(task)
+            }
+
+            fn exists(&mut self, key: &str) -> crate::blob_storage::TaskId {
+                let task = self.new_exists_task(key);
+                self.task_helper.run_task(task)
+            }
+
+            fn events(&mut self) -> crate::thread_sync::Receiver<Event> {
+                self.task_helper.events()
+            }
+
+            fn upload_blocking(&mut self, data: bytes::Bytes, key: Option<&str>) -> crate::blob_storage::UploadResult {
+
+                let mut task = self.new_upload_task(data, key);
+
+                let mut events = Vec::new();
+                task.run(crate::blob_storage_tasks::SyncComm { events: &mut events });
+
+                for event in &events {
+                    match &event.content {
+                        EventContent::UploadSuccess(result) => return Ok(result.clone()),
+                        EventContent::Error(err) => return Err(err.clone()),
+                        _ => todo!()
+                    };
+                }
+
+                panic!("Did not find event");
+            }
+
+            fn download_blocking(&mut self, key: &str) -> crate::blob_storage::DownloadResult {
+
+                let mut task = self.new_download_task(key);
+
+                let mut events = Vec::new();
+                task.run(crate::blob_storage_tasks::SyncComm { events: &mut events });
+
+                for event in &events {
+                    match &event.content {
+                        EventContent::DownloadSuccess(result) => return Ok(result.clone()),
+                        EventContent::Error(err) => return Err(err.clone()),
+                        _ => todo!()
+                    };
+                }
+
+                panic!("Did not find event");
+            }
+
+            fn exists_blocking(&mut self, key: &str) -> crate::blob_storage::ExistsResult {
+
+                let mut task = self.new_exists_task(key);
+
+                let mut events = Vec::new();
+                task.run(crate::blob_storage_tasks::SyncComm { events: &mut events });
+
+                for event in &events {
+                    match &event.content {
+                        EventContent::ExistsSuccess(result) => return Ok(*result),
+                        EventContent::Error(err) => return Err(err.clone()),
+                        _ => todo!()
+                    };
+                }
+
+                panic!("Did not find event");
+            }
+        }
+    };
+}
+
+pub(crate) use implement_blob_storage_for_task_provider;

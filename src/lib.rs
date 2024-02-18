@@ -7,3 +7,4 @@ pub mod mirror;
 pub mod dot_har;
 pub mod cmd_impl;
 pub mod blob_storage_tasks;
+pub mod blob_storage_s3;

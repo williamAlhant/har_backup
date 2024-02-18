@@ -1,13 +1,14 @@
-use super::thread_sync::Receiver;
 use std::path::{Path, PathBuf};
 use bytes::Bytes;
 use log::debug;
 use anyhow::Context;
 use super::blob_storage::{
-    Event, EventContent, TaskId, get_hash_name,
-    BlobStorage, ExistsResult, UploadResult, DownloadResult};
+    Event, EventContent, get_hash_name,
+    BlobStorage};
 use super::blob_encryption::EncryptWithChacha;
-use super::blob_storage_tasks::{Comm, SyncComm, Task, TaskHelper};
+use super::blob_storage_tasks::{
+    Comm, Task, TaskHelper,
+    implement_blob_storage_for_task_provider};
 
 pub struct BlobStorageLocalDirectory {
     local_dir_path: PathBuf,
@@ -113,82 +114,8 @@ impl BlobStorageLocalDirectory {
     }
 }
 
-impl BlobStorage for BlobStorageLocalDirectory {
-    fn upload(&mut self, data: Bytes, key: Option<&str>) -> TaskId {
-        let task = self.new_upload_task(data, key);
-        self.task_helper.run_task(task)
-    }
-
-    fn download(&mut self, key: &str) -> TaskId {
-        let task = self.new_download_task(key);
-        self.task_helper.run_task(task)
-    }
-
-    fn exists(&mut self, key: &str) -> TaskId {
-        let task = self.new_exists_task(key);
-        self.task_helper.run_task(task)
-    }
-
-    fn events(&mut self) -> Receiver<Event> {
-        self.task_helper.events()
-    }
-
-    fn upload_blocking(&mut self, data: Bytes, key: Option<&str>) -> UploadResult {
-
-        let mut task = self.new_upload_task(data, key);
-
-        let mut events = Vec::new();
-        task.run(SyncComm { events: &mut events });
-
-        for event in &events {
-            match &event.content {
-                EventContent::UploadSuccess(result) => return Ok(result.clone()),
-                EventContent::Error(err) => return Err(err.clone()),
-                _ => todo!()
-            };
-        }
-
-        panic!("Did not find event");
-    }
-
-    fn download_blocking(&mut self, key: &str) -> DownloadResult {
-
-        let mut task = self.new_download_task(key);
-
-        let mut events = Vec::new();
-        task.run(SyncComm { events: &mut events });
-
-        for event in &events {
-            match &event.content {
-                EventContent::DownloadSuccess(result) => return Ok(result.clone()),
-                EventContent::Error(err) => return Err(err.clone()),
-                _ => todo!()
-            };
-        }
-
-        panic!("Did not find event");
-    }
-
-    fn exists_blocking(&mut self, key: &str) -> ExistsResult {
-
-        let mut task = self.new_exists_task(key);
-
-        let mut events = Vec::new();
-        task.run(SyncComm { events: &mut events });
-
-        for event in &events {
-            match &event.content {
-                EventContent::ExistsSuccess(result) => return Ok(*result),
-                EventContent::Error(err) => return Err(err.clone()),
-                _ => todo!()
-            };
-        }
-
-        panic!("Did not find event");
-    }
-}
-
 impl BlobStorageLocalDirectory {
+
     fn new_upload_task(&self, data: Bytes, key: Option<&str>) -> UploadTask {
         UploadTask {
             local_dir_path: self.local_dir_path.clone(),
@@ -211,3 +138,5 @@ impl BlobStorageLocalDirectory {
         }
     }
 }
+
+implement_blob_storage_for_task_provider!(BlobStorageLocalDirectory);
