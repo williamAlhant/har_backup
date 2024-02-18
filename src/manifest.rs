@@ -6,6 +6,8 @@ use log::debug;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
+use crate::blob_storage;
+
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Serialize, Deserialize, Hash)]
 pub struct EntryId {
     id: usize
@@ -360,7 +362,12 @@ pub struct DiffManifests {
     pub paths_of_top_extra_in_a: Vec<PathBuf>,
     pub extra_files_in_a: usize,
     pub extra_dirs_in_a: usize,
+    pub paths_of_different_files: Vec<PathBuf>,
     dirs_num_files_dirs: HashMap<EntryId, (usize, usize)>, // recursive number of (files, dirs) in a dir
+    archive_root: PathBuf,
+    bucket_name: String,
+    hash_check: bool,
+    already_called: bool,
 }
 
 impl fmt::Display for DiffManifests {
@@ -372,59 +379,88 @@ impl fmt::Display for DiffManifests {
     }
 }
 
-pub fn diff_manifests(manifest_a: &Manifest, manifest_b: &Manifest) -> DiffManifests {
+impl DiffManifests {
+    pub fn with_hash_check(mut self, archive_root: PathBuf, bucket_name: String) -> Self {
+        self.hash_check = true;
+        self.archive_root = archive_root;
+        self.bucket_name = bucket_name;
+        self
+    }
 
-    let mut diff = DiffManifests::default();
+    pub fn diff_manifests(mut self, manifest_a: &Manifest, manifest_b: &Manifest) -> Self {
 
-    let root_dir_a = manifest_a.get_entry(manifest_a.root).try_directory_ref().unwrap();
-    let root_dir_b = manifest_b.get_entry(manifest_b.root).try_directory_ref().unwrap();
-    let path_getter = manifest_a.get_full_path_getter();
+        assert!(!self.already_called);
+        self.already_called = true;
 
-    let mut to_visit_dirs: Vec<(&Directory, &Directory)> = vec![(root_dir_a, root_dir_b)];
+        let root_dir_a = manifest_a.get_entry(manifest_a.root).try_directory_ref().unwrap();
+        let root_dir_b = manifest_b.get_entry(manifest_b.root).try_directory_ref().unwrap();
+        let path_getter = manifest_a.get_full_path_getter();
 
-    while let Some((dir_a, dir_b)) = to_visit_dirs.pop() {
+        let mut to_visit_dirs: Vec<(&Directory, &Directory)> = vec![(root_dir_a, root_dir_b)];
 
-        for entry_id_a in dir_a.entries.values().cloned() {
+        while let Some((dir_a, dir_b)) = to_visit_dirs.pop() {
 
-            // exclude stuff
-            // todo: move to from_fs()
-            let full_path = path_getter(entry_id_a);
-            if full_path == Path::new(".har") {
-                continue;
-            }
+            for entry_id_a in dir_a.entries.values().cloned() {
 
-            let entry_a = manifest_a.get_entry(entry_id_a);
-            match entry_a {
-                Entry::File(file) => {
-                    if !dir_b.entries.contains_key(&file.name) {
-                        diff.extra_files_in_a += 1;
-                        diff.top_extra_ids_in_a.push(entry_id_a);
-                    }
-                },
-                Entry::Directory(subdir_a) => {
-                    if dir_b.entries.contains_key(&subdir_a.name) {
-                        let entry_id_b = dir_b.entries.get(&subdir_a.name).unwrap();
-                        let subdir_b = manifest_b.get_entry(*entry_id_b).try_directory_ref().unwrap(); // todo handle error of mismatch entry type
-                        to_visit_dirs.push((subdir_a, subdir_b));
-                    }
-                    else {
-                        diff.extra_dirs_in_a += 1;
-                        diff.top_extra_ids_in_a.push(entry_id_a);
-                        let num_children = get_num_child_in_dir_recurs(&mut diff.dirs_num_files_dirs, manifest_a, entry_id_a);
-                        diff.extra_files_in_a += num_children.0;
-                        diff.extra_dirs_in_a += num_children.1;
-                    }
-                },
+                // exclude stuff
+                // todo: move to from_fs()
+                let full_path = path_getter(entry_id_a);
+                if full_path == Path::new(".har") {
+                    continue;
+                }
+
+                let entry_a = manifest_a.get_entry(entry_id_a);
+                match entry_a {
+                    Entry::File(file) => {
+                        if dir_b.entries.contains_key(&file.name) {
+                            if self.hash_check {
+                                let file_path = self.archive_root.join(&full_path);
+                                let file_bytes = std::fs::read(file_path).unwrap();
+                                let hash_name = blob_storage::get_hash_name(self.bucket_name.as_str(), bytes::Bytes::from(file_bytes));
+
+                                let remote_entry = manifest_b.get_entry(dir_b.entries[&file.name]);
+                                let remote_entry_hash_name = remote_entry.try_file_ref().unwrap().blob_key.to_string();
+
+                                if hash_name != remote_entry_hash_name {
+                                    self.paths_of_different_files.push(full_path);
+                                }
+                            }
+                        }
+                        else {
+                            self.extra_files_in_a += 1;
+                            self.top_extra_ids_in_a.push(entry_id_a);
+                        }
+                    },
+                    Entry::Directory(subdir_a) => {
+                        if dir_b.entries.contains_key(&subdir_a.name) {
+                            let entry_id_b = dir_b.entries.get(&subdir_a.name).unwrap();
+                            let subdir_b = manifest_b.get_entry(*entry_id_b).try_directory_ref().unwrap(); // todo handle error of mismatch entry type
+                            to_visit_dirs.push((subdir_a, subdir_b));
+                        }
+                        else {
+                            self.extra_dirs_in_a += 1;
+                            self.top_extra_ids_in_a.push(entry_id_a);
+                            let num_children = get_num_child_in_dir_recurs(&mut self.dirs_num_files_dirs, manifest_a, entry_id_a);
+                            self.extra_files_in_a += num_children.0;
+                            self.extra_dirs_in_a += num_children.1;
+                        }
+                    },
+                }
             }
         }
-    }
 
-    for &entry_id in &diff.top_extra_ids_in_a {
-        let full_path = path_getter(entry_id);
-        diff.paths_of_top_extra_in_a.push(full_path);
+        for &entry_id in &self.top_extra_ids_in_a {
+            let full_path = path_getter(entry_id);
+            self.paths_of_top_extra_in_a.push(full_path);
+        }
+
+        self
     }
-    
-    diff
+}
+
+pub fn diff_manifests(manifest_a: &Manifest, manifest_b: &Manifest) -> DiffManifests {
+    let diff = DiffManifests::default();
+    diff.diff_manifests(manifest_a, manifest_b)
 }
 
 pub fn add_new_entries_to_manifest(
@@ -491,7 +527,7 @@ fn get_num_child_in_dir_recurs(dirs_num_child: &mut HashMap<EntryId, (usize, usi
     if let Entry::File(_) = entry {
         return (1, 0);
     }
-    
+
     let maybe_known_size = dirs_num_child.get(&entry_id);
     if let Some(&size) = maybe_known_size {
         return size;
@@ -500,7 +536,7 @@ fn get_num_child_in_dir_recurs(dirs_num_child: &mut HashMap<EntryId, (usize, usi
     let Entry::Directory(dir) = entry else {
         panic!("What? we already tested if it's a file, it can't be")
     };
-    
+
     let mut size = (0, 0);
     for &entry_id in dir.entries.values() {
         let entry = manifest.get_entry(entry_id);

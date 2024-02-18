@@ -21,13 +21,24 @@ impl WithLocal {
         Ok(me)
     }
 
-    pub fn diff(&self, remote: bool) -> Result<()> {
+    pub fn diff(&self, remote: bool, hash_check: bool) -> Result<()> {
         let local_manifest = Manifest::from_fs(self.local_meta.get_archive_root()).context("Making manifest from local tree")?;
         let remote_manifest = self.local_meta.get_manifest().context("Reading fetched manifest")?;
-        let diff = match remote {
-            false => manifest::diff_manifests(&local_manifest, &remote_manifest),
-            true => manifest::diff_manifests(&remote_manifest, &local_manifest),
+
+        let (manifest_a, manifest_b) = match remote {
+            false => (&local_manifest, &remote_manifest),
+            true => (&remote_manifest, &local_manifest),
         };
+
+        let mut diff = manifest::DiffManifests::default();
+        if hash_check {
+            let archive_root = self.local_meta.get_archive_root();
+            let remote_spec = self.local_meta.get_remote_spec()?;
+            let (_, bucket_name) = remote_spec.split_once("://").context("Parsing remote spec to get bucket name")?;
+            diff = diff.with_hash_check(archive_root.to_path_buf(), bucket_name.to_string());
+        }
+
+        let diff = diff.diff_manifests(manifest_a, manifest_b);
 
         if remote {
             println!("Remote has the additional entries:");
@@ -39,6 +50,14 @@ impl WithLocal {
             println!("{}", entry_path.to_str().unwrap());
         }
         println!("Total extra files: {}, total extra dirs: {}", diff.extra_files_in_a, diff.extra_dirs_in_a);
+
+        if hash_check && !diff.paths_of_different_files.is_empty() {
+            println!("There are some files which hash has changed:");
+            for entry_path in &diff.paths_of_different_files {
+                println!("{}", entry_path.to_str().unwrap());
+            }
+        }
+
         Ok(())
     }
 

@@ -57,6 +57,8 @@ struct CreateKey {
 struct Diff {
     #[arg(long, required=false, help="Show what extra entries are in remote instead of what extra entries are in local")]
     remote: bool,
+    #[arg(long, required=false, help="Rehash local files to check if they are same as in remote")]
+    hash: bool,
 }
 
 fn main() -> Result<()> {
@@ -71,7 +73,7 @@ fn main() -> Result<()> {
         Command::FetchManifest => WithRemoteAndLocal::new()?.fetch_manifest(),
         Command::InitRemote => WithRemoteAndLocal::new()?.init_remote(),
         Command::PrintFetchedManifest => WithLocal::new()?.print_fetched_manifest(),
-        Command::Diff(sub_cli) => WithLocal::new()?.diff(sub_cli.remote),
+        Command::Diff(sub_cli) => WithLocal::new()?.diff(sub_cli.remote, sub_cli.hash),
         Command::Push => WithRemoteAndLocal::new()?.push(),
         Command::Pull => WithRemoteAndLocal::new()?.pull(),
     }
