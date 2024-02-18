@@ -6,3 +6,4 @@ pub mod thread_sync;
 pub mod mirror;
 pub mod dot_har;
 pub mod cmd_impl;
+pub mod blob_storage_tasks;
