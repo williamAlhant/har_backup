@@ -2,6 +2,7 @@
 use std::path::{Path, PathBuf};
 use anyhow::{Result, Context, anyhow};
 use super::manifest::Manifest;
+use std::ops::Range;
 
 pub const DOT_HAR_NAME: &str = ".har";
 const KEYPATH_FILE: &str = "keypath";
@@ -12,6 +13,72 @@ const FETCHED_MANIFEST_BACKUP: &str = "fetched_manifest.backup";
 #[derive(Clone)]
 pub struct DotHar {
     path: PathBuf
+}
+
+pub enum RemoteSpec {
+    LocalFileSystem(PathBuf),
+    S3(S3Spec),
+}
+
+pub struct S3Spec {
+    underlying: String,
+    endpoint: Range<usize>,
+    bucket_name: Range<usize>,
+    key: Range<usize>,
+    secret: Range<usize>,
+}
+
+impl S3Spec {
+    pub fn endpoint(&self) -> &str {
+        &self.underlying.as_str()[self.endpoint.clone()]
+    }
+    pub fn bucket_name(&self) -> &str {
+        &self.underlying.as_str()[self.bucket_name.clone()]
+    }
+    pub fn key(&self) -> &str {
+        &self.underlying.as_str()[self.key.clone()]
+    }
+    pub fn secret(&self) -> &str {
+        &self.underlying.as_str()[self.secret.clone()]
+    }
+}
+
+impl RemoteSpec {
+    fn parse(spec_str: &str) -> Result<Self> {
+        let (scheme, the_rest) = spec_str.split_once("://").context("Remote spec (as specified by .har) does not have format A://B")?;
+        let ret = match scheme {
+            "fs" => {
+                RemoteSpec::LocalFileSystem(PathBuf::from(the_rest))
+            },
+            "s3" => {
+                let mut lines = the_rest.lines();
+                let mut underlying = String::new();
+
+                let mut get_line_and_push_underlying = || -> anyhow::Result<_> {
+                    let line = lines.next().context("Parsing s3 spec in .har")?;
+                    let range = underlying.len()..(underlying.len() + line.len());
+                    underlying.push_str(line);
+                    Ok(range)
+                };
+
+                let endpoint = get_line_and_push_underlying()?;
+                let bucket_name = get_line_and_push_underlying()?;
+                let key = get_line_and_push_underlying()?;
+                let secret = get_line_and_push_underlying()?;
+
+                let s3_spec = S3Spec {
+                    underlying,
+                    endpoint,
+                    bucket_name,
+                    key,
+                    secret,
+                };
+                RemoteSpec::S3(s3_spec)
+            },
+            _ => anyhow::bail!("Unknown scheme {}", scheme)
+        };
+        Ok(ret)
+    }
 }
 
 impl DotHar {
@@ -48,9 +115,10 @@ impl DotHar {
         Ok(PathBuf::from(&keypath_str))
     }
 
-    pub fn get_remote_spec(&self) -> Result<String> {
+    pub fn get_remote_spec(&self) -> Result<RemoteSpec> {
         let file_content = self.read_file(REMOTE_FILE)?;
         let remote_spec = String::from_utf8(file_content)?;
+        let remote_spec = RemoteSpec::parse(&remote_spec)?;
         Ok(remote_spec)
     }
 
