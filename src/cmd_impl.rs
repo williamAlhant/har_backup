@@ -1,8 +1,9 @@
 use anyhow::{Result, Context};
+use crate::blob_storage_s3;
 use crate::manifest::{self, Manifest};
 use crate::mirror::TransferConfig;
 use crate::{blob_storage_local_directory::BlobStorageLocalDirectory, mirror::Mirror};
-use crate::blob_storage::BlobStorage;
+use crate::blob_storage::{self, BlobStorage};
 use crate::dot_har::DotHar;
 use std::path::{Path, PathBuf};
 use std::collections::HashMap;
@@ -115,10 +116,20 @@ impl WithRemoteAndLocal {
 
         let remote_spec = local_meta.get_remote_spec()?;
         let (scheme, path) = remote_spec.split_once("://").context("Remote spec (as specified by .har) does not have format A://B")?;
-        debug!("Remote scheme/path {} {}", scheme, path);
 
         if scheme == "fs" {
+            debug!("fs scheme, path: {}", path);
             let blob_storage = BlobStorageLocalDirectory::new(Path::new(path), &keypath)?;
+            Ok(Box::new(blob_storage))
+        }
+        else if scheme == "s3" {
+            let mut lines = remote_spec.lines();
+            let first = lines.next().context("Parsing s3 remote spec")?;
+            let (_, endpoint) = first.split_once("://").context("Parsing s3 remote spec")?;
+            let bucket = lines.next().context("Parsing s3 remote spec")?;
+            let key = lines.next().context("Parsing s3 remote spec")?;
+            let secret = lines.next().context("Parsing s3 remote spec")?;
+            let blob_storage = blob_storage_s3::BlobStorageS3::new(endpoint, bucket, key, secret)?;
             Ok(Box::new(blob_storage))
         }
         else {
