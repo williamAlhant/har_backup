@@ -35,7 +35,18 @@ impl WithLocal {
         if hash_check {
             let archive_root = self.local_meta.get_archive_root();
             let remote_spec = self.local_meta.get_remote_spec()?;
-            let (_, bucket_name) = remote_spec.split_once("://").context("Parsing remote spec to get bucket name")?;
+            let (scheme, the_rest) = remote_spec.split_once("://").context("Remote spec (as specified by .har) does not have format A://B")?;
+
+            let bucket_name = if scheme == "fs" {
+                the_rest
+            }
+            else if scheme == "s3" {
+                todo!();
+            }
+            else {
+                todo!();
+            };
+
             diff = diff.with_hash_check(archive_root.to_path_buf(), bucket_name.to_string());
         }
 
@@ -129,7 +140,7 @@ impl WithRemoteAndLocal {
             let bucket = lines.next().context("Parsing s3 remote spec")?;
             let key = lines.next().context("Parsing s3 remote spec")?;
             let secret = lines.next().context("Parsing s3 remote spec")?;
-            let blob_storage = blob_storage_s3::BlobStorageS3::new(endpoint, bucket, key, secret)?;
+            let blob_storage = blob_storage_s3::BlobStorageS3::new(endpoint, bucket, key, secret, &keypath)?;
             Ok(Box::new(blob_storage))
         }
         else {
