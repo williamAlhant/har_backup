@@ -3,14 +3,13 @@ use bytes::Bytes;
 use log::debug;
 use anyhow::Context;
 use super::blob_storage::{
-    Event, EventContent, get_hash_name,
-    BlobStorage};
+    self, Event, EventContent, get_hash_name, BlobStorage};
 use super::blob_encryption::EncryptWithChacha;
 use super::blob_storage_tasks::{
-    Comm, Task, TaskHelper,
-    implement_blob_storage_for_task_provider};
+    Comm, Task, TaskHelper, TaskProvider};
+use delegate::delegate;
 
-pub struct BlobStorageLocalDirectory {
+struct BlobStorageLocalDirectoryImpl {
     local_dir_path: PathBuf,
     encrypt: EncryptWithChacha,
     task_helper: TaskHelper
@@ -99,7 +98,7 @@ impl Task for ExistsTask {
     }
 }
 
-impl BlobStorageLocalDirectory {
+impl BlobStorageLocalDirectoryImpl {
     pub fn new(local_dir_path: &Path, encryption_key_file: &Path) -> anyhow::Result<Self> {
         if !local_dir_path.exists() {
             anyhow::bail!("BlobStorageLocalDirectory::new Directory does not exist")
@@ -114,7 +113,15 @@ impl BlobStorageLocalDirectory {
     }
 }
 
-impl BlobStorageLocalDirectory {
+impl TaskProvider for BlobStorageLocalDirectoryImpl {
+
+    type UploadTask = UploadTask;
+    type DownloadTask = DownloadTask;
+    type ExistsTask = ExistsTask;
+
+    fn task_helper(&mut self) -> &mut TaskHelper {
+        &mut self.task_helper
+    }
 
     fn new_upload_task(&self, data: Bytes, key: Option<&str>) -> UploadTask {
         UploadTask {
@@ -139,4 +146,29 @@ impl BlobStorageLocalDirectory {
     }
 }
 
-implement_blob_storage_for_task_provider!(BlobStorageLocalDirectory);
+pub struct BlobStorageLocalDirectory {
+    inner: BlobStorageLocalDirectoryImpl
+}
+
+impl BlobStorageLocalDirectory {
+    pub fn new(local_dir_path: &Path, encryption_key_file: &Path) -> anyhow::Result<Self> {
+        Ok(Self {
+            inner: BlobStorageLocalDirectoryImpl::new(local_dir_path, encryption_key_file)?
+        })
+    }
+}
+
+impl BlobStorage for BlobStorageLocalDirectory {
+    delegate! {
+        to self.inner {
+            fn upload(&mut self, data: Bytes, key: Option<&str>) -> blob_storage::TaskId;
+            fn download(&mut self, key: &str) -> blob_storage::TaskId;
+            fn exists(&mut self, key: &str) -> blob_storage::TaskId;
+            fn events(&mut self) -> crate::thread_sync::Receiver<Event>;
+
+            fn upload_blocking(&mut self, data: Bytes, key: Option<&str>) -> blob_storage::UploadResult;
+            fn download_blocking(&mut self, key: &str) -> blob_storage::DownloadResult;
+            fn exists_blocking(&mut self, key: &str) -> blob_storage::ExistsResult;
+        }
+    }
+}

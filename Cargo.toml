@@ -11,6 +11,7 @@ blake3 = { version = "1.5.0", features = ["serde"] }
 bytes = "1.5.0"
 chacha20poly1305 = "0.10.1"
 clap = { version = "4.5.0", features = ["derive"] }
+delegate = "0.12.0"
 env_logger = "0.11.1"
 generic-array = "1.0.0"
 log = "0.4.20"

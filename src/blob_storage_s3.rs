@@ -1,5 +1,5 @@
-use crate::blob_storage::{BlobStorage, Event, EventContent, get_hash_name};
-use crate::blob_storage_tasks::{Comm, Task, TaskHelper, implement_blob_storage_for_task_provider};
+use crate::blob_storage::{self, BlobStorage, Event, EventContent, get_hash_name};
+use crate::blob_storage_tasks::{Comm, Task, TaskHelper, TaskProvider};
 use crate::blob_encryption::EncryptWithChacha;
 use std::path::Path;
 use std::io::Read;
@@ -8,17 +8,18 @@ use url::Url;
 use bytes::Bytes;
 use anyhow::Context;
 use log::debug;
+use delegate::delegate;
 
 const PRESIGNED_URL_DURATION: std::time::Duration = std::time::Duration::from_secs(60 * 60);
 
-pub struct BlobStorageS3 {
+struct BlobStorageS3Impl {
     task_helper: TaskHelper,
     bucket: Bucket,
     credentials: Credentials,
     encrypt: EncryptWithChacha,
 }
 
-impl BlobStorageS3 {
+impl BlobStorageS3Impl {
     pub fn new(endpoint: &str, bucket: &str, key: &str, secret: &str, encryption_key_file: &Path) -> anyhow::Result<Self> {
         let endpoint = endpoint.parse().context("parsing endpoint")?;
         let bucket = bucket.to_string();
@@ -154,7 +155,16 @@ impl Task for ExistsTask {
     }
 }
 
-impl BlobStorageS3 {
+impl TaskProvider for BlobStorageS3Impl {
+
+    type UploadTask = UploadTask;
+    type DownloadTask = DownloadTask;
+    type ExistsTask = ExistsTask;
+
+    fn task_helper(&mut self) -> &mut TaskHelper {
+        &mut self.task_helper
+    }
+
     fn new_upload_task(&self, data: bytes::Bytes, key: Option<&str>) -> UploadTask {
         UploadTask {
             bucket: self.bucket.clone(),
@@ -183,4 +193,29 @@ impl BlobStorageS3 {
     }
 }
 
-implement_blob_storage_for_task_provider!(BlobStorageS3);
+pub struct BlobStorageS3 {
+    inner: BlobStorageS3Impl
+}
+
+impl BlobStorageS3 {
+    pub fn new(endpoint: &str, bucket: &str, key: &str, secret: &str, encryption_key_file: &Path) -> anyhow::Result<Self> {
+        Ok(Self {
+            inner: BlobStorageS3Impl::new(endpoint, bucket, key, secret, encryption_key_file)?
+        })
+    }
+}
+
+impl BlobStorage for BlobStorageS3 {
+    delegate! {
+        to self.inner {
+            fn upload(&mut self, data: Bytes, key: Option<&str>) -> blob_storage::TaskId;
+            fn download(&mut self, key: &str) -> blob_storage::TaskId;
+            fn exists(&mut self, key: &str) -> blob_storage::TaskId;
+            fn events(&mut self) -> crate::thread_sync::Receiver<Event>;
+
+            fn upload_blocking(&mut self, data: Bytes, key: Option<&str>) -> blob_storage::UploadResult;
+            fn download_blocking(&mut self, key: &str) -> blob_storage::DownloadResult;
+            fn exists_blocking(&mut self, key: &str) -> blob_storage::ExistsResult;
+        }
+    }
+}
